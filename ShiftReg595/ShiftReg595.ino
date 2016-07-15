@@ -32,7 +32,7 @@
 #define s595_on()    s595_OE_LO
 
 #define s595_latch()    s595_STCP_LO; s595_STCP_HI
-#define s595_reset()    s595_MR_LO; s595_MR_HI; s595_latch()
+#define s595_reset()    s595_MR_LO; s595_MR_HI
 #define s595_shift_LO() s595_SHCP_LO; s595_DS_LO; s595_SHCP_HI   //  PORTB = B00001000; s595_SHCP_HI
 #define s595_shift_HI() s595_SHCP_LO; s595_DS_HI; s595_SHCP_HI   //  PORTB = B00101001; s595_SHCP_HI
 
@@ -40,6 +40,7 @@
 
 
 void setup() {
+  Serial.begin(57600);
   
   pinMode(13,        OUTPUT);  // 
   pinMode(s595_OE,   OUTPUT);  // OE (active-low)
@@ -63,17 +64,32 @@ void setup() {
 
 const int n = 8;
 int i = n;
+int delay_ms = 100;
 
 void loop() {
+// if there's any serial available, read it:
+  while ((!!Serial) && (Serial.available() > 0)) {
+    delay_ms = Serial.parseInt();
+
+    // look for the newline. That's the end of your
+    // sentence:
+    if (Serial.read() == '\n') {
+      Serial.print("delay: ");
+      Serial.print(delay_ms);
+      Serial.println("ms");
+    }
+  } 
+    
   if (i > 0) {
     s595_shift_HI();
     s595_latch();
     i--;
+    delay(delay_ms);
   } else {
     s595_reset();
     i = n;
   }
-  delay(100);
+
 }
 
 
