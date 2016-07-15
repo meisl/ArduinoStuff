@@ -1,4 +1,5 @@
 
+//#include "CurieTimerOne.h"
 
 #define s595_OE_pin    6  // PORTD7 on Leonardo
 #define s595_OE_port   PORTD
@@ -66,10 +67,33 @@ void setup() {
   s595_off();
   s595_reset();
   s595_on();
+
+  configure_interrupts();
 }
 
-const int n = 16;
-int i = 0;
+void configure_interrupts(void) {
+  cli(); // disable interrupts
+
+  /***************** I DO NOT KNOW WHAT I'M DOING HERE...! *******************/
+  
+  // Timer 1 (16 bit)
+  TCCR1A =  (1 << WGM01);                // CTC mode
+  TCCR1B =  (1 << CS10);// | (1 << CS10);   // prescaler; CS11 only yields about 250 µs (4 kHz)
+  TIMSK1 |= (1 << OCIE1A);              // compare interrupt
+  
+  sei(); // enable interrupts
+}
+
+volatile long last_micros = 0;
+volatile long delta_micros;
+
+ISR(TIMER1_COMPA_vect) {
+  long micros_now = micros();
+  delta_micros = micros_now - last_micros;
+  last_micros = micros_now;
+}
+
+volatile int i = 0;
 int delay_ms = 100;
 
 const byte data[] = {
@@ -80,7 +104,7 @@ const byte data[] = {
   B00011100,
   B00001110,
   B00000111,
-  B00000011,
+  B00000011,  B00000001,
   B00000011,
   B00000111,
   B00001110,
@@ -104,22 +128,23 @@ void shiftout_byte(byte b) {
 
 void loop() {
 // if there's any serial available, read it:
-  while ((!!Serial) && (Serial.available() > 0)) {
-    delay_ms = Serial.parseInt();
-
-    // look for the newline. That's the end of your
-    // sentence:
-    if (Serial.read() == '\n') {
-      Serial.print("delay: ");
-      Serial.print(delay_ms);
-      Serial.println("ms");
-    }
-  } 
-
+  if (Serial) {
+    Serial.println(delta_micros);
+    while (Serial.available() > 0) {
+      delay_ms = Serial.parseInt();
+  
+      if (Serial.read() == '\n') {
+        Serial.print("delay: ");
+        Serial.print(delay_ms);
+        Serial.println("ms");
+      }
+    } 
+  }
+  
   shiftout_byte(data[i]);
   s595_latch();
 
-  if (++i >= n) {
+  if (++i >= sizeof(data)) {
     i = 0;
   }
   delay(delay_ms);
