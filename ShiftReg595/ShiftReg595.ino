@@ -42,7 +42,7 @@ D1 ~> PORTD3 on Leonardo
 #define s595_on()    s595_OE_LO
 
 #define s595_latch()    s595_STCP_LO; s595_STCP_HI
-#define s595_reset()    s595_MR_LO; s595_MR_HI
+#define s595_clear()    s595_MR_LO; s595_MR_HI
 #define s595_shift_LO() (PORTD =                  0); s595_SHCP_HI  //  s595_SHCP_LO; s595_DS_LO; s595_SHCP_HI //    
 #define s595_shift_HI() (PORTD = (1 << s595_DS_bit)); s595_SHCP_HI  //  s595_SHCP_LO; s595_DS_HI; s595_SHCP_HI //   
 
@@ -65,7 +65,7 @@ void setup() {
   digitalWrite(s595_DS_pin, LOW);
   
   s595_off();
-  s595_reset();
+  s595_clear();
   s595_on();
 
   configure_interrupts();
@@ -78,7 +78,7 @@ void configure_interrupts(void) {
   
   // Timer 1 (16 bit)
   TCCR1A =  (1 << WGM01);                // CTC mode
-  TCCR1B =  (1 << CS10);// | (1 << CS10);   // prescaler; CS11 only yields about 250 µs (4 kHz)
+  TCCR1B =  (1 << CS11);// | (1 << CS10);   // prescaler; CS11 (alone) yields about 250 µs (4 kHz), CS10 (alone) yields about 32 µs (31.25 kHz), 
   TIMSK1 |= (1 << OCIE1A);              // compare interrupt
   
   sei(); // enable interrupts
@@ -86,25 +86,39 @@ void configure_interrupts(void) {
 
 volatile long last_micros = 0;
 volatile long delta_micros;
+volatile byte pwm_slot = 0;
+const int n_pwm_slots = 15;
 
 ISR(TIMER1_COMPA_vect) {
   long micros_now = micros();
   delta_micros = micros_now - last_micros;
   last_micros = micros_now;
+
+  //s595_clear();
+
+  if (++pwm_slot >= n_pwm_slots) {
+    pwm_slot = 0;  
+  }
 }
 
 volatile int i = 0;
-int delay_ms = 100;
+int delay_ms = 500;
 
 const byte data[] = {
-  B11000000,
-  B11100000,
+  //0, 3, 5, 7, 9, 11, 13, 15  
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15  
+};
+
+const byte data2[] = {
+  B11000000,  //  { 0x08, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, //  
+  B11100000,  //  { 0x08, 0x0F, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, //  
   B01110000,
   B00111000,
   B00011100,
   B00001110,
   B00000111,
-  B00000011,  B00000001,
+  B00000011,  
+  B00000001,
   B00000011,
   B00000111,
   B00001110,
@@ -140,14 +154,22 @@ void loop() {
       }
     } 
   }
-  
-  shiftout_byte(data[i]);
-  s595_latch();
 
-  if (++i >= sizeof(data)) {
+  if (delay_ms == 0) {
+    s595_off();
     i = 0;
+  } else {
+    shiftout_byte(data[i]);
+    s595_latch();
+    s595_on();
+    i++;
+
+    if (i >= sizeof(data)) {
+      i = 0;
+    }
+    delay(delay_ms);  
   }
-  delay(delay_ms);
+
   
 }
 
