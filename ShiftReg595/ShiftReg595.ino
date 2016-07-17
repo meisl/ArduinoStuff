@@ -27,6 +27,9 @@ D0 ~> PORTD2 on Leonardo
 D1 ~> PORTD3 on Leonardo
 */
 
+volatile long s595_state_int = 0;
+volatile long s595_state_ext = 0;
+
 #define s595_OE_LO   (s595_OE_port   &= ~(1 << s595_OE_bit  ))  // digitalWrite(s595_pin_OE,   LOW)
 #define s595_OE_HI   (s595_OE_port   |=  (1 << s595_OE_bit  ))  // digitalWrite(s595_OE_pin,   HIGH)
 #define s595_MR_LO   (s595_MR_port   &= ~(1 << s595_MR_bit  ))  // digitalWrite(s595_MR_pin,   LOW)
@@ -41,10 +44,10 @@ D1 ~> PORTD3 on Leonardo
 #define s595_off()   s595_OE_HI
 #define s595_on()    s595_OE_LO
 
-#define s595_latch()    s595_STCP_LO; s595_STCP_HI
-#define s595_clear()    s595_MR_LO; s595_MR_HI
-#define s595_shift_LO() (PORTD =                  0); s595_SHCP_HI  //  s595_SHCP_LO; s595_DS_LO; s595_SHCP_HI //    
-#define s595_shift_HI() (PORTD = (1 << s595_DS_bit)); s595_SHCP_HI  //  s595_SHCP_LO; s595_DS_HI; s595_SHCP_HI //   
+#define s595_latch()    s595_STCP_LO; s595_STCP_HI; (s595_state_ext = s595_state_int)
+#define s595_clear()    s595_MR_LO; s595_MR_HI; (s595_state_int = 0)
+#define s595_shift_LO() (PORTD =                  0); s595_SHCP_HI; (s595_state_int <<= 1)  //  s595_SHCP_LO; s595_DS_LO; s595_SHCP_HI //    
+#define s595_shift_HI() (PORTD = (1 << s595_DS_bit)); s595_SHCP_HI; (s595_state_int <<= 1); (s595_state_int |= 1);   //  s595_SHCP_LO; s595_DS_HI; s595_SHCP_HI //   
 
 
 void setup() {
@@ -66,47 +69,36 @@ void setup() {
   
   s595_off();
   s595_clear();
+  s595_latch();
   s595_on();
 
   configure_interrupts();
 }
 
+#define PRESCALE_STOPPED  0
+#define PRESCALE_BY_1     (1 << CS10)                 //  16 MHz     /   62.5 ns
+#define PRESCALE_BY_8     (1 << CS11)                 //   2 MHz     /  500.0 ns
+#define PRESCALE_BY_64    (1 << CS11) | (1 << CS10)   // 250 KHz     /    4.0 µs
+#define PRESCALE_BY_256   (1 << CS12)                 //  62.5 KHz   /   16.0 µs
+#define PRESCALE_BY_1024  (1 << CS12) | (1 << CS10)   //  15.625 KHz /   64.0 µs
+
 void configure_interrupts(void) {
   cli(); // disable interrupts
-
-  /***************** I DO NOT KNOW WHAT I'M DOING HERE...! *******************/
   
   // Timer 1 (16 bit)
-  TCCR1A =  (1 << WGM01);                // CTC mode
-  TCCR1B =  (1 << CS11);// | (1 << CS10);   // prescaler; CS11 (alone) yields about 250 µs (4 kHz), CS10 (alone) yields about 32 µs (31.25 kHz), 
-  TIMSK1 |= (1 << OCIE1A);              // compare interrupt
-  
+  TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                    // CTC mode
+  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | PRESCALE_BY_64;   // CTC mode, prescaling
+  TIMSK1 |= (1 << OCIE1A);      // enable compare interrupt
+  OCR1A  = 0; // (15625 >> 1);  // compare match register
+    
   sei(); // enable interrupts
 }
+//1048576 micros, pwm_tick: 16, OCR1A: 62500, OCR1B: 0
 
-volatile long last_micros = 0;
-volatile long delta_micros;
-volatile byte pwm_slot = 0;
-const int n_pwm_slots = 15;
 
-ISR(TIMER1_COMPA_vect) {
-  long micros_now = micros();
-  delta_micros = micros_now - last_micros;
-  last_micros = micros_now;
-
-  //s595_clear();
-
-  if (++pwm_slot >= n_pwm_slots) {
-    pwm_slot = 0;  
-  }
-}
-
-volatile int i = 0;
-int delay_ms = 500;
-
-const byte data[] = {
-  //0, 3, 5, 7, 9, 11, 13, 15  
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15  
+const byte data[][8] = {
+  { 0, 1, 5, 7, 9, 11, 99, 255 }
+  //{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 }  
 };
 
 const byte data2[] = {
@@ -129,6 +121,57 @@ const byte data2[] = {
   B11000000
 };
 
+volatile long last_micros = 0;
+volatile long delta_micros;
+
+volatile boolean timer_intr    = false;
+volatile boolean timer_enabled = false;
+
+const    byte pwm_tickCount = 64;
+volatile byte pwm_tick = pwm_tickCount;
+const    int  pwm_rowCount = 8;
+volatile int  pwm_row_index = pwm_rowCount;
+const    int  pwm_columnCount = 8;
+
+ISR(TIMER1_COMPA_vect) {
+  if (!timer_enabled) {
+    return;
+  }
+  long micros_now = micros();
+  //delta_micros = micros_now - last_micros;
+  //last_micros = micros_now;
+
+
+  s595_latch(); // latch out what we've done last time
+  s595_clear();
+
+
+  if (++pwm_tick >= pwm_tickCount) {
+    pwm_tick = 0;
+    if (++pwm_row_index >= pwm_rowCount) {
+      pwm_row_index = 0;
+    }
+    //rowData = data[pwm_row_index];
+  }
+
+  if (pwm_row_index == 0) {
+    for (int i = 0; i < pwm_columnCount; i++) {
+      byte x = data[0][i];
+      if (x <= pwm_tick) {
+        s595_shift_LO();
+      } else {
+        s595_shift_HI();
+      }
+    }
+    delta_micros = micros() - micros_now;
+  }
+
+  timer_intr = true;
+}
+
+volatile int i = 0;
+int delay_ms = 1;
+
 void shiftout_byte(byte b) {
   byte mask = 0x80;
   for (mask = 0x80; mask != 0; mask >>= 1) {
@@ -141,9 +184,22 @@ void shiftout_byte(byte b) {
 }
 
 void loop() {
+  char buf[33];
 // if there's any serial available, read it:
   if (Serial) {
-    Serial.println(delta_micros);
+    timer_enabled = true;
+    if (timer_intr) {
+      timer_intr = false;
+      Serial.print(delta_micros);
+      Serial.print(" micros");
+      Serial.print(", s595_int: ");
+      Serial.print(ltoa((1 << 8) | s595_state_int, buf, 2));
+      Serial.print(", s595_ext: ");
+      Serial.print(ltoa((1 << 8) | s595_state_ext, buf, 2));
+      Serial.print(", pwm_tick: ");
+      Serial.print(pwm_tick);
+      Serial.println();
+    }
     while (Serial.available() > 0) {
       delay_ms = Serial.parseInt();
   
@@ -159,6 +215,7 @@ void loop() {
     s595_off();
     i = 0;
   } else {
+    /*
     shiftout_byte(data[i]);
     s595_latch();
     s595_on();
@@ -167,7 +224,8 @@ void loop() {
     if (i >= sizeof(data)) {
       i = 0;
     }
-    delay(delay_ms);  
+    delay(delay_ms);
+    */
   }
 
   
