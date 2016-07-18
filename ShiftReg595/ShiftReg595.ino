@@ -106,13 +106,13 @@ void configure_interrupts(void) {
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                    // CTC mode
   TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | PRESCALE_BY_64;   // CTC mode, prescaling
   TIMSK1 |= (1 << OCIE1A);      // enable compare interrupt
-  OCR1A  = 12; // (15625 >> 1);  // compare match register
+  OCR1A  = (12) - 1; // compare match register
     
   interrupts();
 }
 
 
-#define  pwm_tickCount   32
+#define  pwm_tickCount   63
 #define  pwm_columnCount 24
 #define  pwm_rowCount    10
 
@@ -121,7 +121,7 @@ byte data[][32] = {
   //{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 }  
 };
 
-byte data_rgb[][pwm_columnCount*3] = {
+byte data_rgb[][24*3] = {
   { 
     0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,       
     0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,       
@@ -150,8 +150,7 @@ const byte data2[] = {
   B11000000
 };
 
-unsigned int  delta_micros;
-unsigned int  delta_micros2;
+volatile uint16_t  delta_micros;
 
 boolean timer_intr    = false;
 boolean timer_enabled = false;
@@ -324,8 +323,11 @@ ISR(TIMER1_COMPA_vect) {
     if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
     if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
 */  
-    unsigned long delta = micros() - micros_now;
-    delta_micros = (unsigned int)delta;
+    uint32_t delta = micros() - micros_now;
+    if (!timer_intr) {
+      delta_micros = (uint16_t)delta;
+      timer_intr = true;
+    } 
 
 /*
     Serial.print("tick ");
@@ -336,7 +338,6 @@ ISR(TIMER1_COMPA_vect) {
 */
   }
 
-  timer_intr = true;
 }
 
 
@@ -363,8 +364,8 @@ void loop() {
   if (Serial) {
     timer_enabled = true;
     if (timer_intr) {
-      unsigned long micros = delta_micros;
-               byte tick   = pwm_tick;
+      uint16_t micros = delta_micros;
+      uint8_t  tick   = pwm_tick;
       timer_intr = false;
       Serial.print(micros);
       Serial.print(" micros");
