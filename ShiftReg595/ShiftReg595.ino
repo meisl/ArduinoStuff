@@ -2,25 +2,35 @@
 
 //#include "CurieTimerOne.h"
 
-#define s595_OE_pin    6  // PORTD7 on Leonardo
+#define s595_OE_pin    6  // pin 6 is PORTD7 on Leonardo
 #define s595_OE_port   PORTD
 #define s595_OE_bit    7
 
-#define s595_MR_pin    5  // PORTC6 on Leonardo
+#define s595_MR_pin    5  // pin 5 is PORTC6 on Leonardo
 #define s595_MR_port   PORTC
 #define s595_MR_bit    6
 
-#define s595_STCP_pin  4  // PORTD4 on Leonardo
+#define s595_STCP_pin  4  // pin 4 is PORTD4 on Leonardo
 #define s595_STCP_port PORTD
 #define s595_STCP_bit  4
 
-#define s595_SHCP_pin  3  // PORTD0 on Leonardo
+#define s595_SHCP_pin  3  // pin 3 is PORTD0 on Leonardo
 #define s595_SHCP_port PORTD
 #define s595_SHCP_bit  0
 
-#define s595_DS_pin    2  // PORTD1 on Leonardo
+#define s595_DS_pin    2  // pin 2 is PORTD1 on Leonardo
 #define s595_DS_port   PORTD
 #define s595_DS_bit    1
+
+#define s595_DSb_pin    0  // pin 0 is PORTD2 on Leonardo
+#define s595_DSb_port   PORTD
+#define s595_DSb_bit    2
+
+#define s595_DSc_pin    1  // pin 1 is PORTD3 on Leonardo
+#define s595_DSc_port   PORTD
+#define s595_DSc_bit    3
+
+
 
 /*
 D7 ~> PORTE6 on Leonardo
@@ -41,6 +51,12 @@ volatile long s595_state_ext = 0;
 #define s595_SHCP_HI (s595_SHCP_port |=  (1 << s595_SHCP_bit))  // digitalWrite(s595_SHCP_pin, HIGH)
 #define s595_DS_LO   (s595_DS_port   &= ~(1 << s595_DS_bit  ))  // digitalWrite(s595_DS_pin,   LOW)
 #define s595_DS_HI   (s595_DS_port   |=  (1 << s595_DS_bit  ))  // digitalWrite(s595_DS_pin,   HIGH)
+#define s595_DSa_LO  (s595_DS_port  &= ~(1 << s595_DS_bit  ))  // digitalWrite(s595_DS_pin,   LOW)
+#define s595_DSa_HI  (s595_DS_port  |=  (1 << s595_DS_bit  ))  // digitalWrite(s595_DS_pin,   HIGH)
+#define s595_DSb_LO  (s595_DSb_port  &= ~(1 << s595_DSb_bit  ))
+#define s595_DSb_HI  (s595_DSb_port  |=  (1 << s595_DSb_bit  ))
+#define s595_DSc_LO  (s595_DSc_port  &= ~(1 << s595_DSc_bit  ))
+#define s595_DSc_HI  (s595_DSc_port  |=  (1 << s595_DSc_bit  ))
 
 #define s595_off()   s595_OE_HI
 #define s595_on()    s595_OE_LO
@@ -77,28 +93,40 @@ void setup() {
 }
 
 #define PRESCALE_STOPPED  0
-#define PRESCALE_BY_1     (1 << CS10)                 //  16 MHz     /   62.5 ns
-#define PRESCALE_BY_8     (1 << CS11)                 //   2 MHz     /  500.0 ns
-#define PRESCALE_BY_64    (1 << CS11) | (1 << CS10)   // 250 KHz     /    4.0 µs
-#define PRESCALE_BY_256   (1 << CS12)                 //  62.5 KHz   /   16.0 µs
-#define PRESCALE_BY_1024  (1 << CS12) | (1 << CS10)   //  15.625 KHz /   64.0 µs
+#define PRESCALE_BY_1     (1 << CS10)                 //  16.000 MHz /  62.5 ns
+#define PRESCALE_BY_8     (1 << CS11)                 //   2.000 MHz / 500.0 ns
+#define PRESCALE_BY_64    (1 << CS11) | (1 << CS10)   // 250.000 KHz /   4.0 µs
+#define PRESCALE_BY_256   (1 << CS12)                 //  62.500 KHz /  16.0 µs
+#define PRESCALE_BY_1024  (1 << CS12) | (1 << CS10)   //  15.625 KHz /  64.0 µs
 
 void configure_interrupts(void) {
-  cli(); // disable interrupts
+  noInterrupts();
   
   // Timer 1 (16 bit)
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                    // CTC mode
-  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | PRESCALE_BY_1024;   // CTC mode, prescaling
+  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | PRESCALE_BY_64;   // CTC mode, prescaling
   TIMSK1 |= (1 << OCIE1A);      // enable compare interrupt
-  OCR1A  = 0; // (15625 >> 1);  // compare match register
+  OCR1A  = 12; // (15625 >> 1);  // compare match register
     
-  sei(); // enable interrupts
+  interrupts();
 }
-//1048576 micros, pwm_tick: 16, OCR1A: 62500, OCR1B: 0
 
+
+#define  pwm_tickCount   32
+#define  pwm_columnCount 24
+#define  pwm_rowCount    10
 
 byte data[][32] = {
-  { 0, 255, 0, 255, 0, 255, 0, 255,     0, 255, 0, 255, 0, 255, 0, 255,     0, 255, 0, 255, 0, 255, 0, 255,     0, 1, 5, 9, 13, 5, 21, 65 }
+  { 0, 255, 0, 255, 0, 255, 0, 255,     0, 255, 0, 255, 0, 255, 0, 255,     0, 255, 0, 255, 0, 255, 0, 255,     0, 1, 2, 9, 13, 5, 21, 65 }
+  //{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 }  
+};
+
+byte data_rgb[][pwm_columnCount*3] = {
+  { 
+    0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,       
+    0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,       
+    0x00, 0x00, 0x00,   0x01, 0xFF, 0xFF,  0x02, 0x00, 0x00,   0x09, 0xFF, 0xFF,  0x0D, 0x00, 0x00,   0xF5, 0xFF, 0xFF,  0x15, 0x00, 0x00,   0x1F, 0xFF, 0xFF,       
+  }
   //{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 }  
 };
 
@@ -122,15 +150,12 @@ const byte data2[] = {
   B11000000
 };
 
-long last_micros = 0;
-long delta_micros;
+unsigned int  delta_micros;
+unsigned int  delta_micros2;
 
 boolean timer_intr    = false;
 boolean timer_enabled = false;
 
-#define  pwm_tickCount   64
-#define  pwm_columnCount 64
-#define  pwm_rowCount    4
 
 byte pwm_tick = pwm_tickCount;
 int  pwm_row_index = pwm_rowCount;
@@ -138,19 +163,18 @@ int  pwm_row_index = pwm_rowCount;
 
 byte rowBuf[(pwm_tickCount * pwm_columnCount) >> 3];
 
+
+
 ISR(TIMER1_COMPA_vect) {
   if (!timer_enabled) {
     return;
   }
   long micros_now = micros();
-  //delta_micros = micros_now - last_micros;
-  //last_micros = micros_now;
 
 
   s595_latch(); // latch out what we've done last time
   s595_clear();
 
-  static byte* rowData;
 
   if (++pwm_tick >= pwm_tickCount) {
     if (++pwm_row_index >= pwm_rowCount) {
@@ -179,20 +203,42 @@ ISR(TIMER1_COMPA_vect) {
     }
     */
     pwm_tick = 0;
-    rowData = &rowBuf[pwm_row_index];
+    //rowData = &rowBuf[pwm_row_index];
   }
 
   //char buf[33];
 
+  byte* rowData = (byte*)&data_rgb[pwm_row_index];
   if (pwm_row_index == 0) {
 
     for (int i = 0; i < pwm_columnCount; i++) {
+      /*
       byte x = data[0][i];  //  
       if (x <= pwm_tick) {
         s595_shift_LO();
       } else {
         s595_shift_HI();
       }
+      */
+      /*
+      if (*rowData++ <= pwm_tick) {
+        s595_shift_LO();
+      } else {
+        s595_shift_HI();
+      } 
+      */
+      byte out = 0;
+      if (*rowData++ > pwm_tick) {
+        out |= (1 << s595_DS_bit);  // "bank" a
+      }
+      if (*rowData++ > pwm_tick) {  // "bank" b
+        out |= (1 << s595_DSb_bit);
+      }
+      if (*rowData++ > pwm_tick) {  // "bank" c
+        out |= (1 << s595_DSc_bit);
+      }
+      PORTD = out; // also sets SHCP and STCP low
+      s595_SHCP_HI;
     }
 /*
     byte x;
@@ -277,8 +323,10 @@ ISR(TIMER1_COMPA_vect) {
     if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
     if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
     if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
-*/     
-    delta_micros = micros() - micros_now;
+*/  
+    unsigned long delta = micros() - micros_now;
+    delta_micros = (unsigned int)delta;
+
 /*
     Serial.print("tick ");
     Serial.print(pwm_tick); Serial.print(": ");
@@ -286,8 +334,6 @@ ISR(TIMER1_COMPA_vect) {
     Serial.print(ltoa( *((unsigned long*)(rowData - 4)), buf, 16));
     Serial.println();
 */
-  } else {
-    s595_clear();
   }
 
   timer_intr = true;
