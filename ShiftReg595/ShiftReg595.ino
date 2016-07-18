@@ -1,3 +1,4 @@
+#include <Arduino.h>
 
 //#include "CurieTimerOne.h"
 
@@ -44,10 +45,10 @@ volatile long s595_state_ext = 0;
 #define s595_off()   s595_OE_HI
 #define s595_on()    s595_OE_LO
 
-#define s595_latch()    s595_STCP_LO; s595_STCP_HI; (s595_state_ext = s595_state_int)
-#define s595_clear()    s595_MR_LO; s595_MR_HI; (s595_state_int = 0)
-#define s595_shift_LO() (PORTD =                  0); s595_SHCP_HI; (s595_state_int <<= 1)  //  s595_SHCP_LO; s595_DS_LO; s595_SHCP_HI //    
-#define s595_shift_HI() (PORTD = (1 << s595_DS_bit)); s595_SHCP_HI; (s595_state_int <<= 1); (s595_state_int |= 1);   //  s595_SHCP_LO; s595_DS_HI; s595_SHCP_HI //   
+#define s595_latch()    s595_STCP_LO; s595_STCP_HI; //(s595_state_ext = s595_state_int)
+#define s595_clear()    s595_MR_LO; s595_MR_HI; //(s595_state_int = 0)
+#define s595_shift_LO() (PORTD =                  0); s595_SHCP_HI; //(s595_state_int <<= 1)  //  s595_SHCP_LO; s595_DS_LO; s595_SHCP_HI //    
+#define s595_shift_HI() (PORTD = (1 << s595_DS_bit)); s595_SHCP_HI; //(s595_state_int <<= 1); (s595_state_int |= 1);   //  s595_SHCP_LO; s595_DS_HI; s595_SHCP_HI //   
 
 
 void setup() {
@@ -87,7 +88,7 @@ void configure_interrupts(void) {
   
   // Timer 1 (16 bit)
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                    // CTC mode
-  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | PRESCALE_BY_64;   // CTC mode, prescaling
+  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | PRESCALE_BY_1024;   // CTC mode, prescaling
   TIMSK1 |= (1 << OCIE1A);      // enable compare interrupt
   OCR1A  = 0; // (15625 >> 1);  // compare match register
     
@@ -96,8 +97,8 @@ void configure_interrupts(void) {
 //1048576 micros, pwm_tick: 16, OCR1A: 62500, OCR1B: 0
 
 
-const byte data[][8] = {
-  { 0, 1, 5, 7, 9, 11, 99, 255 }
+byte data[][32] = {
+  { 0, 255, 0, 255, 0, 255, 0, 255,     0, 255, 0, 255, 0, 255, 0, 255,     0, 255, 0, 255, 0, 255, 0, 255,     0, 1, 5, 9, 13, 5, 21, 65 }
   //{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 }  
 };
 
@@ -121,17 +122,21 @@ const byte data2[] = {
   B11000000
 };
 
-volatile long last_micros = 0;
-volatile long delta_micros;
+long last_micros = 0;
+long delta_micros;
 
-volatile boolean timer_intr    = false;
-volatile boolean timer_enabled = false;
+boolean timer_intr    = false;
+boolean timer_enabled = false;
 
-const    byte pwm_tickCount = 64;
-volatile byte pwm_tick = pwm_tickCount;
-const    int  pwm_rowCount = 8;
-volatile int  pwm_row_index = pwm_rowCount;
-const    int  pwm_columnCount = 8;
+#define  pwm_tickCount   64
+#define  pwm_columnCount 64
+#define  pwm_rowCount    4
+
+byte pwm_tick = pwm_tickCount;
+int  pwm_row_index = pwm_rowCount;
+
+
+byte rowBuf[(pwm_tickCount * pwm_columnCount) >> 3];
 
 ISR(TIMER1_COMPA_vect) {
   if (!timer_enabled) {
@@ -145,29 +150,150 @@ ISR(TIMER1_COMPA_vect) {
   s595_latch(); // latch out what we've done last time
   s595_clear();
 
+  static byte* rowData;
 
   if (++pwm_tick >= pwm_tickCount) {
-    pwm_tick = 0;
     if (++pwm_row_index >= pwm_rowCount) {
       pwm_row_index = 0;
     }
-    //rowData = data[pwm_row_index];
+    /*
+    rowData = &rowBuf[pwm_row_index];
+    for (pwm_tick = 0; pwm_tick < pwm_tickCount; pwm_tick++) {
+      byte* p = &data[pwm_row_index][0];
+
+      *rowData++ = (*p++ > pwm_tick ? 0x01 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x08 : 0)
+                 | (*p++ > pwm_tick ? 0x10 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x80 : 0);
+
+      *rowData++ = (*p++ > pwm_tick ? 0x01 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x08 : 0)
+                 | (*p++ > pwm_tick ? 0x10 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x80 : 0);
+
+      *rowData++ = (*p++ > pwm_tick ? 0x01 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x08 : 0)
+                 | (*p++ > pwm_tick ? 0x10 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x80 : 0);
+
+      *rowData++ = (*p++ > pwm_tick ? 0x01 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x08 : 0)
+                 | (*p++ > pwm_tick ? 0x10 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x80 : 0);
+
+      //*rowData++ = (*p++ > pwm_tick ? 0x80 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x10 : 0)
+      //           | (*p++ > pwm_tick ? 0x08 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x01 : 0);
+
+    }
+    */
+    pwm_tick = 0;
+    rowData = &rowBuf[pwm_row_index];
   }
 
+  //char buf[33];
+
   if (pwm_row_index == 0) {
+
     for (int i = 0; i < pwm_columnCount; i++) {
-      byte x = data[0][i];
+      byte x = data[0][i];  //  
       if (x <= pwm_tick) {
         s595_shift_LO();
       } else {
         s595_shift_HI();
       }
     }
+/*
+    byte x;
+
+    x = *rowData++;
+    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
+    
+    x = *rowData++;
+    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
+    
+    x = *rowData++;
+    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
+    
+    x = *rowData++;
+    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
+*/
+/*  
+    x = *rowData++;
+    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
+    
+    x = *rowData++;
+    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
+    
+    x = *rowData++;
+    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
+    
+    x = *rowData++;
+    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
+    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
+*/     
     delta_micros = micros() - micros_now;
+/*
+    Serial.print("tick ");
+    Serial.print(pwm_tick); Serial.print(": ");
+    Serial.print(delta_micros); Serial.print(" micros; 0x");
+    Serial.print(ltoa( *((unsigned long*)(rowData - 4)), buf, 16));
+    Serial.println();
+*/
+  } else {
+    s595_clear();
   }
 
   timer_intr = true;
 }
+
+
 
 volatile int i = 0;
 int delay_ms = 1;
@@ -183,21 +309,27 @@ void shiftout_byte(byte b) {
   }
 }
 
+  
 void loop() {
   char buf[33];
+
 // if there's any serial available, read it:
   if (Serial) {
     timer_enabled = true;
     if (timer_intr) {
+      unsigned long micros = delta_micros;
+               byte tick   = pwm_tick;
       timer_intr = false;
-      Serial.print(delta_micros);
+      Serial.print(micros);
       Serial.print(" micros");
+      /*
       Serial.print(", s595_int: ");
-      Serial.print(ltoa((1 << 8) | s595_state_int, buf, 2));
+      Serial.print(ltoa(((unsigned long)1 << pwm_columnCount) | s595_state_int, buf, 2));
       Serial.print(", s595_ext: ");
-      Serial.print(ltoa((1 << 8) | s595_state_ext, buf, 2));
+      Serial.print(ltoa(((unsigned long)1 << pwm_columnCount) | s595_state_ext, buf, 2));
+      */
       Serial.print(", pwm_tick: ");
-      Serial.print(pwm_tick);
+      Serial.print(tick);
       Serial.println();
     }
     while (Serial.available() > 0) {
