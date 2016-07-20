@@ -92,42 +92,72 @@ void setup() {
   configure_interrupts();
 }
 
-#define PRESCALE_STOPPED  0
-#define PRESCALE_BY_1     (1 << CS10)                 //  16.000 MHz /  62.5 ns
-#define PRESCALE_BY_8     (1 << CS11)                 //   2.000 MHz / 500.0 ns
-#define PRESCALE_BY_64    (1 << CS11) | (1 << CS10)   // 250.000 KHz /   4.0 µs
-#define PRESCALE_BY_256   (1 << CS12)                 //  62.500 KHz /  16.0 µs
-#define PRESCALE_BY_1024  (1 << CS12) | (1 << CS10)   //  15.625 KHz /  64.0 µs
+#define TIMER1_PRESCALE_STOPPED 0
+#define TIMER1_PRESCALE_BY_1    (                       _BV(CS10))  //  16.000 MHz /  62.5 ns
+#define TIMER1_PRESCALE_BY_8    (           _BV(CS11)            )  //   2.000 MHz / 500.0 ns
+#define TIMER1_PRESCALE_BY_64   (           _BV(CS11) | _BV(CS10))  // 250.000 KHz /   4.0 µs
+#define TIMER1_PRESCALE_BY_256  (_BV(CS12)                          //  62.500 KHz /  16.0 µs
+#define TIMER1_PRESCALE_BY_1024 (_BV(CS12)            | _BV(CS10))  //  15.625 KHz /  64.0 µs
+
+#define TIMER3_PRESCALE_STOPPED 0
+#define TIMER3_PRESCALE_BY_1    (                       _BV(CS30))  //  16.000 MHz /  62.5 ns
+#define TIMER3_PRESCALE_BY_8    (           _BV(CS31)            )  //   2.000 MHz / 500.0 ns
+#define TIMER3_PRESCALE_BY_64   (           _BV(CS31) | _BV(CS30))  // 250.000 KHz /   4.0 µs
+#define TIMER3_PRESCALE_BY_256  (_BV(CS32)                          //  62.500 KHz /  16.0 µs
+#define TIMER3_PRESCALE_BY_1024 (_BV(CS32)            | _BV(CS30))  //  15.625 KHz /  64.0 µs
+
+#define TIMER2_PRESCALE_STOPPED 0
+#define TIMER2_PRESCALE_BY_1    (                            (1 << CS20)) //  16.000 MHz /  62.5 ns
+#define TIMER2_PRESCALE_BY_8    (              (1 << CS21)              ) //   2.000 MHz / 500.0 ns
+#define TIMER2_PRESCALE_BY_32   (              (1 << CS21) | (1 << CS20)) // 500.000 KHz /   2.0 µs
+#define TIMER2_PRESCALE_BY_64   ((1 << CS22)                            ) // 250.000 MHz /   4.0 µs 
+#define TIMER2_PRESCALE_BY_128  ((1 << CS22)               | (1 << CS20)) // 125.000 MHz /   8.0 µs
+#define TIMER2_PRESCALE_BY_256  ((1 << CS22) | (1 << CS21)              ) // 62.500 KHz /   16.0 µs
+#define TIMER2_PRESCALE_BY_1024 ((1 << CS22) | (1 << CS21) | (1 << CS20)) // 15.625 KHz /   64.0 µs
 
 void configure_interrupts(void) {
   noInterrupts();
   
   // Timer 1 (16 bit)
-  TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                    // CTC mode
-  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | PRESCALE_BY_64;   // CTC mode, prescaling
-  TIMSK1 |= (1 << OCIE1A);      // enable compare interrupt
-  OCR1A  = (12) - 1; // compare match register
-    
+  TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                          // TIMER1 CTC mode ("Clear Timer on Compare")
+  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | TIMER1_PRESCALE_BY_1;   // TIMER1 CTC mode, prescaling
+  TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
+  OCR1A  = (50 * 16) - 1;   // compare match register
+
+  // Timer 3 (16 bit)
+  TCCR3A =  ((1 << WGM31) & 0x00) | ((1 << WGM30) & 0x00);                        // TIMER3 normal mode
+  TCCR3B =  ((1 << WGM33) & 0x00) | ((1 << WGM32) & 0x00) | TIMER3_PRESCALE_BY_1; // TIMER3 normal mode @ 2MHz / 0.5µs period (overflow after 32.768 ms)
+  TIMSK3 = 0; // no interrupt from Timer3
+
+/* there is no TIMER2 on the Atmega32uXX
+  TCCR2 = 0 | TIMER2_PRESCALE_BY_8; // TIMER2 in normal mode @ 2MHz / 0.5µs period (overflow after 128 µs)
+  TIMSK2 &= ~(_BV(TOIE2) | _BV(OCIE2A) | _BV(OCIE2B)); // no interrupts from TIMER2
+*/ 
   interrupts();
 }
 
 
-#define  pwm_tickCount   63
+#define  pwm_tickCount   32
 #define  pwm_columnCount 24
 #define  pwm_rowCount    10
 
-byte data[][32] = {
-  { 0, 255, 0, 255, 0, 255, 0, 255,     0, 255, 0, 255, 0, 255, 0, 255,     0, 255, 0, 255, 0, 255, 0, 255,     0, 1, 2, 9, 13, 5, 21, 65 }
-  //{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 }  
+byte data[288];
+
+byte data_rgb[][32*4] = {
+  { 
+    0x00, 0x00, 0x00,   0x01, 0xFF, 0xFF,   0x02, 0x00, 0x00,   0x09, 0xFF, 0xFF,   0x0D, 0x00, 0x00,   0x18, 0xFF, 0xFF,   0x1F, 0x00, 0x00,   0x02, 0xFF, 0xFF,       
+    0x00, 0x00, 0x00,   0x01, 0xFF, 0xFF,   0x02, 0x00, 0x00,   0x09, 0xFF, 0xFF,   0x0D, 0x00, 0x00,   0x18, 0xFF, 0xFF,   0x1F, 0x00, 0x00,   0x02, 0xFF, 0xFF,       
+    0x00, 0x00, 0x00,   0x01, 0xFF, 0xFF,   0x02, 0x00, 0x00,   0x09, 0xFF, 0xFF,   0x0D, 0x00, 0x00,   0x18, 0xFF, 0xFF,   0x1F, 0x00, 0x00,   0x02, 0xFF, 0xFF,
+    0x00, 0x00, 0x00,   0x01, 0xFF, 0xFF,   0x02, 0x00, 0x00,   0x09, 0xFF, 0xFF,   0x0D, 0x00, 0x00,   0x18, 0xFF, 0xFF,   0x1F, 0x00, 0x00,   0x02, 0xFF, 0xFF
+  }
 };
 
-byte data_rgb[][24*3] = {
+byte data_rgbX[][16*3] = {
   { 
-    0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,       
-    0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,  0x00, 0x00, 0x00,   0xFF, 0xFF, 0xFF,       
-    0x00, 0x00, 0x00,   0x01, 0xFF, 0xFF,  0x02, 0x00, 0x00,   0x09, 0xFF, 0xFF,  0x0D, 0x00, 0x00,   0xF5, 0xFF, 0xFF,  0x15, 0x00, 0x00,   0x1F, 0xFF, 0xFF,       
+    0x00, 0x00,   0x01, 0xFF,   0x02, 0x00,   0x09, 0xFF,   0x0D, 0x00,   0x18, 0xFF,   0x1F, 0x00,   0x02, 0xFF,       
+    0x00, 0x00,   0x01, 0xFF,   0x02, 0x00,   0x09, 0xFF,   0x0D, 0x00,   0x18, 0xFF,   0x1F, 0x00,   0x02, 0xFF,       
+    0x00, 0x00,   0x01, 0xFF,   0x02, 0x00,   0x09, 0xFF,   0x0D, 0x00,   0x18, 0xFF,   0x1F, 0x00,   0x02, 0xFF
   }
-  //{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 }  
 };
 
 const byte data2[] = {
@@ -150,193 +180,142 @@ const byte data2[] = {
   B11000000
 };
 
-volatile uint16_t  delta_micros;
+volatile uint16_t _tm_0;
+volatile uint16_t _tm_1;
+volatile uint16_t _missed;
+volatile uint8_t  _pwm_tick;
 
-boolean timer_intr    = false;
-boolean timer_enabled = false;
+uint16_t  missed;
 
+bool timer_intr    = false;
+bool timer_enabled = false;
 
 byte pwm_tick = pwm_tickCount;
-int  pwm_row_index = pwm_rowCount;
-
+byte pwm_row_index = pwm_rowCount;
 
 byte rowBuf[(pwm_tickCount * pwm_columnCount) >> 3];
 
-
-
 ISR(TIMER1_COMPA_vect) {
+  TCNT3 = 0;
   if (!timer_enabled) {
     return;
   }
-  long micros_now = micros();
-
-
+ 
   s595_latch(); // latch out what we've done last time
   s595_clear();
-
 
   if (++pwm_tick >= pwm_tickCount) {
     if (++pwm_row_index >= pwm_rowCount) {
       pwm_row_index = 0;
     }
-    /*
-    rowData = &rowBuf[pwm_row_index];
-    for (pwm_tick = 0; pwm_tick < pwm_tickCount; pwm_tick++) {
-      byte* p = &data[pwm_row_index][0];
-
-      *rowData++ = (*p++ > pwm_tick ? 0x01 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x08 : 0)
-                 | (*p++ > pwm_tick ? 0x10 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x80 : 0);
-
-      *rowData++ = (*p++ > pwm_tick ? 0x01 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x08 : 0)
-                 | (*p++ > pwm_tick ? 0x10 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x80 : 0);
-
-      *rowData++ = (*p++ > pwm_tick ? 0x01 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x08 : 0)
-                 | (*p++ > pwm_tick ? 0x10 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x80 : 0);
-
-      *rowData++ = (*p++ > pwm_tick ? 0x01 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x08 : 0)
-                 | (*p++ > pwm_tick ? 0x10 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x80 : 0);
-
-      //*rowData++ = (*p++ > pwm_tick ? 0x80 : 0) | (*p++ > pwm_tick ? 0x40 : 0) | (*p++ > pwm_tick ? 0x20 : 0) | (*p++ > pwm_tick ? 0x10 : 0)
-      //           | (*p++ > pwm_tick ? 0x08 : 0) | (*p++ > pwm_tick ? 0x04 : 0) | (*p++ > pwm_tick ? 0x02 : 0) | (*p++ > pwm_tick ? 0x01 : 0);
-
-    }
-    */
     pwm_tick = 0;
-    //rowData = &rowBuf[pwm_row_index];
   }
 
-  //char buf[33];
+  uint16_t temp = TCNT3;
+  byte tick = pwm_tick;
 
   byte* rowData = (byte*)&data_rgb[pwm_row_index];
   if (pwm_row_index == 0) {
+   
+    asm("                               ; cycles  // comment                          \n"
+        "pwm_tick_start:                                                              \n" 
+        "         lds  %[tick], 0x0109  ; 2       // r20 <- pwm_tick                  \n" 
+        "         ldi  r25, 0x18        ; 1       // r25 <- pwm_columnCount           \n" 
+        "pwm_tick_loop:                                                               \n"
+        "         ld   r24, Z+          ; 2       // r24 <- blue channel value        \n" 
+        "         cp   %[tick], r24     ; 1       // blue channel value < tick?       \n" 
+        "         breq rgb_XX0          ; 1/2                                         \n"
+        "rgb_XX1:                                                                     \n"
+        "         ld   r24, Z+          ; 2       // r24 <- green channel value       \n" 
+        "         cp   %[tick], r24     ; 1       // green channel value < tick?      \n" 
+        "         breq rgb_X01          ; 1/2                                         \n"
+        "rgb_X11:                                                                     \n"
+        "         ld   r24, Z+          ; 2       // r24 <- blue channel value        \n" 
+        "         cp   %[tick], r24     ; 1       // blue channel value < tick?       \n" 
+        "         breq rgb_011          ; 1/2                                         \n"
+        "rgb_111:                                                                 \n"
+        "         out  0x0b, 0x07       ; 1      // PORTD <- rgb, SHCP lo, STCP lo   \n"
+        "         rjmp pwm_clock_out    ; 2                                          \n"
+        "rgb_X01:                                                                 \n"
+        "         ld   r24, Z+          ; 2      // r24 <- blue channel value        \n" 
+        "         cp   %[tick], r24     ; 1      // blue channel value < tick?       \n" 
+        "         breq rgb_001          ; 1/2                                        \n"
+        "rgb_101:                                                                 \n"
+        "         out  0x0b, 0x05       ; 1      // PORTD <- rgb, SHCP lo, STCP lo   \n"
+        "         rjmp pwm_clock_out    ; 2                                          \n"
+        "rgb_XX0:                                                                 \n"
+        "         ld   r24, Z+          ; 2     // r24 <- green channel value        \n" 
+        "         cp   %[tick], r24     ; 1     // green channel value < tick?       \n" 
+        "         breq rgb_X00          ; 1/2                                        \n"
+        "rgb_X10:                                                                 \n"
+        "rgb_X00:                                                                 \n"
+        "rgb_001:                                                                 \n"
+        "         out  0x0b, 0x03       ; 1     // PORTD <- rgb, SHCP lo, STCP lo    \n" 
+        "         rjmp pwm_clock_out    ; 2                                          \n"
+        "rgb_011:                                                                 \n"
+        "         out  0x0b, 0x03       ; 1     // PORTD <- rgb, SHCP lo, STCP lo    \n" 
+        "         rjmp pwm_clock_out    ; 2                                          \n"
 
-    for (int i = 0; i < pwm_columnCount; i++) {
-      /*
-      byte x = data[0][i];  //  
-      if (x <= pwm_tick) {
-        s595_shift_LO();
-      } else {
-        s595_shift_HI();
-      }
-      */
-      /*
-      if (*rowData++ <= pwm_tick) {
-        s595_shift_LO();
-      } else {
-        s595_shift_HI();
-      } 
-      */
+        "pwm_clock_out:                                                           \n"
+        "         sbi  0x0b, 0          ; 2     // SHCP hi on PORTD                   \n"
+        "         dec  r25              ; 1     // next column (r25 was initialized with pwm_columnCount) \n" 
+        "         brne pwm_tick_loop    ; 1/2   // repeat if r25 still > 0            \n"
+        : [tick] "=&r" (tick)
+    );
+
+    
+    byte i = pwm_columnCount;
+    while (i-- != 0) {  // faster than for "(byte i = 0; i < pwm_columnCount; i++)"
       byte out = 0;
-      if (*rowData++ > pwm_tick) {
+ 
+      if (*rowData++ > tick) {
         out |= (1 << s595_DS_bit);  // "bank" a
       }
-      if (*rowData++ > pwm_tick) {  // "bank" b
+      if (*rowData++ > tick) {  // "bank" b
         out |= (1 << s595_DSb_bit);
       }
-      if (*rowData++ > pwm_tick) {  // "bank" c
+      if (*rowData++ > tick) {  // "bank" c
         out |= (1 << s595_DSc_bit);
       }
       PORTD = out; // also sets SHCP and STCP low
       s595_SHCP_HI;
+
+
+/*
+      byte inA = *rowData++;
+      byte inB = inA & 0x1F;
+      if (inA > pwm_tick) {
+        out |= (1 << s595_DS_bit);  // "bank" a
+      }
+      inB = *rowData++;
+      if (inB > pwm_tickHI) {  // "bank" c
+        out |= (1 << s595_DSc_bit);
+      }
+      inA >>= 2;
+      inA |= inB << 6;
+      if (inA > pwm_tickHI) {  // "bank" b
+        out |= (1 << s595_DSb_bit);
+      }
+      PORTD = out; // also sets SHCP and STCP low
+      s595_SHCP_HI;
+*/
+    
     }
-/*
-    byte x;
 
-    x = *rowData++;
-    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
-    
-    x = *rowData++;
-    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
-    
-    x = *rowData++;
-    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
-    
-    x = *rowData++;
-    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
-*/
-/*  
-    x = *rowData++;
-    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
-    
-    x = *rowData++;
-    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
-    
-    x = *rowData++;
-    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
-    
-    x = *rowData++;
-    if (x & 0x01) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x02) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x04) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x08) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x10) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x20) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x40) { s595_shift_HI(); } else { s595_shift_LO(); }
-    if (x & 0x80) { s595_shift_HI(); } else { s595_shift_LO(); }
-*/  
-    uint32_t delta = micros() - micros_now;
-    if (!timer_intr) {
-      delta_micros = (uint16_t)delta;
+
+    if (timer_intr || ((_pwm_tick >= pwm_tick) && (_pwm_tick < pwm_tickCount - 1))) {
+      missed++;
+    } else {
+      _missed = missed;
+      missed = 0;
+      _pwm_tick = pwm_tick;
+      _tm_1 = temp;
+      _tm_0 = TCNT3 + 16; // add 16 cycles for rest of fn plus returning
       timer_intr = true;
-    } 
+    }
 
-/*
-    Serial.print("tick ");
-    Serial.print(pwm_tick); Serial.print(": ");
-    Serial.print(delta_micros); Serial.print(" micros; 0x");
-    Serial.print(ltoa( *((unsigned long*)(rowData - 4)), buf, 16));
-    Serial.println();
-*/
   }
+
 
 }
 
@@ -364,11 +343,19 @@ void loop() {
   if (Serial) {
     timer_enabled = true;
     if (timer_intr) {
-      uint16_t micros = delta_micros;
-      uint8_t  tick   = pwm_tick;
+      uint16_t a      = _tm_0;
+      uint16_t b      = _tm_1;
+      uint16_t missed = _missed;
+      uint8_t  tick   = _pwm_tick;
       timer_intr = false;
-      Serial.print(micros);
-      Serial.print(" micros");
+      Serial.print(a);
+      Serial.print(" / ");
+      Serial.print(b);
+      Serial.print(" cycles (");
+      Serial.print(a * 0.0625);
+      Serial.print(" / ");
+      Serial.print(b * 0.0625);
+      Serial.print(" micros)");
       /*
       Serial.print(", s595_int: ");
       Serial.print(ltoa(((unsigned long)1 << pwm_columnCount) | s595_state_int, buf, 2));
@@ -377,6 +364,8 @@ void loop() {
       */
       Serial.print(", pwm_tick: ");
       Serial.print(tick);
+      Serial.print(", missed: ");
+      Serial.print(missed);
       Serial.println();
     }
     while (Serial.available() > 0) {
