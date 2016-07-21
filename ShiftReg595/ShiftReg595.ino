@@ -217,10 +217,12 @@ ISR(TIMER1_COMPA_vect) {
   byte* rowData = (byte*)&data_rgb[pwm_row_index];
   if (pwm_row_index == 0) {
 
-    asm("                                   ; cycles  // comment                        \n"
+    byte col;
+
+    asm volatile("                                   ; cycles  // comment                        \n"
         "pwm_tick_start:                    ;                                           \n" 
-        "         lds  %[tick], 0x0109      ; 2       // r20 <- pwm_tick                \n" 
-        "         ldi  r25, 0x18            ; 1       // r25 <- pwm_columnCount         \n" 
+        //"         lds  %[tick], %[pwm_tick] ; 2       // pwm_tick                \n" 
+        "         ldi  %[col], %[colCount]  ; 1       // pwm_columnCount         \n" 
         "pwm_tick_loop:                     ;                                           \n"
         "         ld   r0, Z+               ; 2       // fetch blue channel value       \n" 
         "         cp   r0, %[tick]          ; 1       // blue channel value < tick?     \n" 
@@ -275,14 +277,15 @@ ISR(TIMER1_COMPA_vect) {
         "         rjmp pwm_clock_out        ; 2                                         \n"
          "pwm_clock_out:                    ;                                           \n"
         "         sbi  0x0b, 0              ; 2       // SHCP hi on PORTD               \n"
-        "         dec  r25                  ; 1       // next column (r25 was initialized with pwm_columnCount) \n" 
-        "         brne pwm_tick_loop        ; 1/2     // repeat if r25 still > 0        \n"
-        : [tick] "=&r" (tick) :
+        "         dec  %[col]               ; 1       // next column                    \n" 
+        "         brne pwm_tick_loop        ; 1/2     // repeat if %[col] still > 0     \n"
+        : [col] "=&d" (col)
+        : [colCount] "M" (pwm_columnCount), [tick] "r" (tick)
     );
 
-    
-    byte i = pwm_columnCount;
-    while (i-- != 0) {  // faster than for "(byte i = 0; i < pwm_columnCount; i++)"
+/*
+    col = pwm_columnCount;
+    while (col-- != 0) {  // faster than for "(byte col = 0; col < pwm_columnCount; i++)"
       byte out = 0;
  
       if (*rowData++ > tick) {
@@ -297,8 +300,8 @@ ISR(TIMER1_COMPA_vect) {
       PORTD = out; // also sets SHCP and STCP low
       s595_SHCP_HI;
 
+// ----------------------------------------
 
-/*
       byte inA = *rowData++;
       byte inB = inA & 0x1F;
       if (inA > pwm_tick) {
@@ -315,10 +318,9 @@ ISR(TIMER1_COMPA_vect) {
       }
       PORTD = out; // also sets SHCP and STCP low
       s595_SHCP_HI;
-*/
     
     }
-
+*/
 
     if (timer_intr || ((_pwm_tick >= pwm_tick) && (_pwm_tick < pwm_tickCount - 1))) {
       missed++;
