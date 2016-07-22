@@ -14,6 +14,7 @@
 #define s595_STCP_port PORTD
 #define s595_STCP_bit  4
 
+
 #define s595_SHCP_pin  3  // pin 3 is PORTD0 on Leonardo
 #define s595_SHCP_port PORTD
 #define s595_SHCP_bit  0
@@ -210,33 +211,32 @@ ISR(TIMER1_COMPA_vect) {
     pwm_tick = 0;
   }
 
-  uint16_t temp;
-  byte tick = pwm_tick;
 
   if (pwm_row_index == 0) {
 
 
-    TCNT3 = 0;
+    
 #define pwm_tick_ASM1
 
 #ifdef pwm_tick_ASM1
-    volatile byte* rowData = (byte*)&data_rgb[pwm_row_index];
-    byte col;
-    asm volatile("                          ; cycles  // comment               \n"
-        "pwm_tick_start:                    ;                                           \n" 
-        "         lds  %[tick], pwm_tick    ; 2                                         \n"
-        "         ldi  %[col], %[colCount]  ; 1       // pwm_columnCount                \n" 
+  volatile byte* rowData = (byte*)&data_rgb[pwm_row_index];
+  byte tick = pwm_tick;
+  byte col = pwm_columnCount;
+  TCNT3 = 0;
+  asm volatile("                            ; cycles  // comment                        \n"
+        "         sts 0x0095, r1            ; 2   // TCNT3H \n"
+        "         sts 0x0094, r1            ; 2   // TCNT3L \n"
         "pwm_tick_loop:                     ;                                           \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch blue channel value       \n" 
-        "         cp   %[tick], __tmp_reg__ ; 1       // tick < blue channel value      \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < blue channel value?     \n" 
         "         brlo rgb_XX1              ; 1/2     // if so use a 1 for blue...      \n"
         "rgb_XX0:                           ;         // ...otherwise a 0               \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch green channel value      \n" 
-        "         cp   %[tick], __tmp_reg__ ; 1       // tick < green channel value     \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < green channel value?    \n" 
         "         brlo rgb_X10              ; 1/2     // if so use a 1 for green...     \n"
         "rgb_X00:                           ;         // ...otherwise a 0               \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch red channel value        \n" 
-        "         cp   %[tick], __tmp_reg__ ; 1       // tick < red channel value       \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < red channel value?      \n" 
         "         brlo rgb_100              ; 1/2     // if so use a 1 for red...       \n"
         "rgb_000:                           ;         // ...otherwise a 0               \n"
         "         out  %[port], __zero_reg__; 2       // %[port] <- rgb, SHCP lo, STCP lo    \n"
@@ -246,11 +246,11 @@ ISR(TIMER1_COMPA_vect) {
         "         rjmp pwm_data_out         ; 2                                         \n"
         "rgb_XX1:                           ;                                           \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch green channel value      \n" 
-        "         cp   %[tick], __tmp_reg__ ; 1       // tick < green channel value     \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < green channel value?    \n" 
         "         brlo rgb_X11              ; 1/2     // if so use a 1 for green...     \n"
         "rgb_X01:                           ;         // ...otherwise a 0               \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch red channel value        \n" 
-        "         cp   %[tick], __tmp_reg__ ; 1       // tick < red channel value       \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < red channel value?      \n" 
         "         brlo rgb_101              ; 1/2     // if so use a 1 for red...       \n"
         "rgb_001:                           ;         // ...otherwise a 0               \n"
         "         ldi  %[rgb], %[rgb_001]   ; 1       // %[port] <- rgb, SHCP lo, STCP lo    \n"
@@ -260,7 +260,7 @@ ISR(TIMER1_COMPA_vect) {
         "         rjmp pwm_data_out         ; 2                                         \n"
         "rgb_X10:                           ;         // ...otherwise a 0               \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch red channel value        \n" 
-        "         cp   %[tick], __tmp_reg__ ; 1       // tick < red channel value       \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < red channel value?      \n" 
         "         brlo rgb_110              ; 1/2     // if so use a 1 for red...       \n"
         "rgb_010:                           ;         // ...otherwise a 0               \n"
         "         ldi  %[rgb], %[rgb_010]   ; 1       // %[port] <- rgb, SHCP lo, STCP lo    \n"
@@ -270,7 +270,7 @@ ISR(TIMER1_COMPA_vect) {
         "         rjmp pwm_data_out         ; 2                                         \n"
         "rgb_X11:                           ;         // ...otherwise a 0               \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch red channel value        \n" 
-        "         cp   %[tick], __tmp_reg__ ; 1       // tick < red channel value       \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < red channel value?      \n" 
         "         brlo rgb_111              ; 1/2     // if so use a 1 for red...       \n"
         "rgb_011:                           ;         // ...otherwise a 0               \n"
         "         ldi  %[rgb], %[rgb_011]   ; 1       // %[port] <- rgb, SHCP lo, STCP lo    \n"
@@ -278,17 +278,64 @@ ISR(TIMER1_COMPA_vect) {
         "rgb_111:                           ;                                           \n"
         "         ldi  %[rgb], %[rgb_111]   ; 1       // %[port] <- rgb, SHCP lo, STCP lo    \n"
         "pwm_data_out:                      ;                                           \n"
-        "         out  %[port], %[rgb]      ; 2       // write rgb data to port (with SHCP = STCP = LO) \n"
+        "         out  %[port], %[rgb]      ; 1       // write rgb data to port (with SHCP = STCP = LO) \n"
         "pwm_clock_out:                     ;                                           \n"
         "         sbi  %[port], %[shcp_bit] ; 2       // SHCP hi on PORTD               \n"
         "         dec  %[col]               ; 1       // next column                    \n" 
         "         brne pwm_tick_loop        ; 1/2     // repeat if %[col] still > 0     \n"
-        : [col]      "+d"  (col),
+        : [col]      "+r"  (col), // "r" means any register
                      "+e"  (rowData) // %a1
-        :  [colCount] "M"   (pwm_columnCount), 
-          [rgb]      "d"   (0),
-          [tick]     "r"   (tick), 
+        : [tick]     "r"   (tick), 
           [port]     "I"   (_SFR_IO_ADDR(s595_DS_port)),
+          [rgb]      "a"   (0),  // "a" means simple upper register (r16..r23)
+          [rgb_001]  "I"   (                                         _BV(s595_DS_bit) ),
+          [rgb_010]  "I"   (                     _BV(s595_DSb_bit)                    ),
+          [rgb_011]  "I"   (                     _BV(s595_DSb_bit) | _BV(s595_DS_bit) ),
+          [rgb_100]  "I"   ( _BV(s595_DSc_bit)                                        ),
+          [rgb_101]  "I"   ( _BV(s595_DSc_bit)                     | _BV(s595_DS_bit) ),
+          [rgb_110]  "I"   ( _BV(s595_DSc_bit) | _BV(s595_DSb_bit)                    ),
+          [rgb_111]  "I"   ( _BV(s595_DSc_bit) | _BV(s595_DSb_bit) | _BV(s595_DS_bit) ),
+          [shcp_bit] "I"   (s595_SHCP_bit)
+    );
+#endif
+// ----------------------------------------
+
+#ifdef pwm_tick_ASM2
+    volatile byte* rowData = (byte*)&data_rgb[pwm_row_index];
+    byte tick = pwm_tick;
+    byte col = pwm_columnCount;
+    TCNT3 = 0;
+    asm volatile("                          ; cycles  // comment                        \n"
+        "         sts 0x0095, r1            ; 2   // TCNT3H \n"
+        "         sts 0x0094, r1            ; 2   // TCNT3L \n"
+        "pwm_tick_loop:                                                                 \n"
+        "         ldi  %[rgb], %[rgb_111]   ; 1       // start with all set to 1        \n"
+        "blue:                                                                          \n"
+        "         ld   __tmp_reg__, %a1+    ; 2       // fetch blue channel value       \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < blue channel value?     \n" 
+        "         brlo green                ; 1/2     // if so use leave the 1 for blue \n"
+        "         andi %[rgb], %[rgb_110]   ; 1       // ...otherwise clear blue bit    \n"
+        "green:                                                                         \n"
+        "         ld   __tmp_reg__, %a1+    ; 2       // fetch green channel value      \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < green channel value?    \n" 
+        "         brlo red                ; 1/2       // if so use leave the 1 for green \n"
+        "         andi %[rgb], %[rgb_101]   ; 1       // ...otherwise clear blue bit    \n"
+        "red:                                                                           \n"
+        "         ld   __tmp_reg__, %a1+    ; 2       // fetch red channel value        \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // tick < red channel value?      \n" 
+        "         brlo pwm_data_out         ; 1/2     // if so use leave the 1 for red  \n"
+        "         andi %[rgb], %[rgb_011]   ; 1       // ...otherwise clear blue bit    \n"
+        "pwm_data_out:                      ;                                           \n"
+        "         out  %[port], %[rgb]      ; 1       // write rgb data to port (with SHCP = STCP = LO) \n"
+        "pwm_clock_out:                     ;                                           \n"
+        "         sbi  %[port], %[shcp_bit] ; 2       // SHCP hi on PORTD               \n"
+        "         dec  %[col]               ; 1       // next column                    \n" 
+        "         brne pwm_tick_loop        ; 1/2     // repeat if %[col] still > 0     \n"
+        : [col]      "+r"  (col), // "r" means any register
+                     "+e"  (rowData) // %a1
+        : [tick]     "r"   (tick), 
+          [port]     "I"   (_SFR_IO_ADDR(s595_DS_port)),
+          [rgb]      "d"   (0),  // "d" means upper register
           [rgb_001]  "I"   (                                         _BV(s595_DS_bit) ),
           [rgb_010]  "I"   (                     _BV(s595_DSb_bit)                    ),
           [rgb_011]  "I"   (                     _BV(s595_DSb_bit) | _BV(s595_DS_bit) ),
@@ -301,8 +348,10 @@ ISR(TIMER1_COMPA_vect) {
 #endif
 // ----------------------------------------
 #ifdef pwm_tick_C1
-    rowData = (byte*)&data_rgb[pwm_row_index];
-    col = pwm_columnCount;
+    volatile byte* rowData = (byte*)&data_rgb[pwm_row_index];
+    byte tick = pwm_tick;
+    byte col = pwm_columnCount;
+    TCNT3 = 0;
     while (col-- != 0) {  // faster than for "(byte col = 0; col < pwm_columnCount; i++)"
       byte out = 0;
  
@@ -322,7 +371,9 @@ ISR(TIMER1_COMPA_vect) {
 // ----------------------------------------
 #ifdef pwm_tick_C2
     volatile byte* rowData = (byte*)&data_rgb[pwm_row_index];
-    byte col;
+    byte tick = pwm_tick;
+    byte col = pwm_columnCount;
+    TCNT3 = 0;
     while (col-- != 0) {  // faster than for "(byte col = 0; col < pwm_columnCount; i++)"
       byte inA = *rowData++;
       byte inB = inA & 0x1F;
@@ -344,7 +395,7 @@ ISR(TIMER1_COMPA_vect) {
     }
 #endif
 
-    temp = TCNT3;
+      uint16_t temp = TCNT3;
     if (timer_intr || ((_pwm_tick >= pwm_tick) && (_pwm_tick < pwm_tickCount - 1))) {
       missed++;
     } else {
