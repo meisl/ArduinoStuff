@@ -123,7 +123,7 @@ void configure_interrupts(void) {
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                          // TIMER1 CTC mode ("Clear Timer on Compare")
   TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | TIMER1_PRESCALE_BY_1;   // TIMER1 CTC mode, prescaling
   TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
-  OCR1A  = (50 * 16) - 1;   // compare match register
+  OCR1A  = (35 * 16) - 1;   // compare match register: interrupt every 35 µs ~> line frequency 893 Hz @ 32 brightness levels (aka pwm_tickCount)
 
   // Timer 3 (16 bit)
   TCCR3A =  ((1 << WGM31) & 0x00) | ((1 << WGM30) & 0x00);                        // TIMER3 normal mode
@@ -140,12 +140,13 @@ void configure_interrupts(void) {
 
 #define  pwm_tickCount   32
 #define  pwm_columnCount 24
-#define  pwm_rowCount    12
+#define  pwm_rowCount    10
 
 byte data[288];
 
-byte data_rgb[][24*3] = {
+byte data_rgb[][32*3] = {
   { 
+    0x00, 0x00, 0x00,   0x01, 0x01, 0x01,   0x02, 0x02, 0x02,   0x09, 0x09, 0x09,   0x0D, 0x0D, 0x0D,   0x18, 0x18, 0x18,   0x1F, 0x1F, 0x1F,   0x02, 0x02, 0x02,
     0x00, 0x00, 0x00,   0x01, 0x01, 0x01,   0x02, 0x02, 0x02,   0x09, 0x09, 0x09,   0x0D, 0x0D, 0x0D,   0x18, 0x18, 0x18,   0x1F, 0x1F, 0x1F,   0x02, 0x02, 0x02,
     0x00, 0x00, 0x00,   0x01, 0x01, 0x01,   0x02, 0x02, 0x02,   0x09, 0x09, 0x09,   0x0D, 0x0D, 0x0D,   0x18, 0x18, 0x18,   0x1F, 0x1F, 0x1F,   0x02, 0x02, 0x02,
     0x00, 0x00, 0x00,   0x01, 0x01, 0x01,   0x02, 0x02, 0x02,   0x09, 0x09, 0x09,   0x0D, 0x0D, 0x0D,   0x18, 0x18, 0x18,   0x1F, 0x1F, 0x1F,   0x02, 0x02, 0x02
@@ -369,37 +370,59 @@ ISR(TIMER1_COMPA_vect) {
 #ifdef pwm_tick_ASM3
     volatile byte* rowData = (byte*)&data_rgb[pwm_row_index];
     byte tick = pwm_tick;
-    byte col = pwm_columnCount;
+    byte col = pwm_columnCount >> 1;
+#define rgb_reg_init (0)
     TCNT3 = 0;
     asm volatile("                          ; cycles  // comment                        \n"
         "         sts 0x0095, r1            ; 2   // TCNT3H \n"
         "         sts 0x0094, r1            ; 2   // TCNT3L \n"
         "pwm_tick_loop:                                                                 \n"
+        "pwm_column_00:                                                                 \n"
         "         sbi  %[port], %[shcp_bit] ; 2       // SHCP hi on PORTD (bogus on first iteration - doesn't matter) \n"
-        "         clr  %[rgb]               ; 1       // start with all 0 on PORTD      \n"
-        "blue:                                                                          \n"
+        "         ldi  %[rgb], %[rgb_init]  ; 1       // init %[rgb]                    \n"
+        "pwm_blue_00:                                                                   \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch blue channel value       \n" 
         "         cp   %[tick], __tmp_reg__ ; 1       // carry bit is set iff tick < blue  \n" 
         "         rol  %[rgb]               ; 1       // shift in carry as blue bit     \n"
-        "green:                                                                         \n"
+        "pwm_green_00:                                                                \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch green channel value      \n" 
         "         cp   %[tick], __tmp_reg__ ; 1       // carry bit is set iff tick < green  \n" 
-        "         rol  %[rgb]               ; 1       // shift in carry as green bit     \n"
-        "red:                                                                           \n"
+        "         rol  %[rgb]               ; 1       // shift in carry as green bit    \n"
+        "pwm_red_00:                                                                  \n"
         "         ld   __tmp_reg__, %a1+    ; 2       // fetch red channel value        \n" 
         "         cp   %[tick], __tmp_reg__ ; 1       // carry bit is set iff tick < red  \n" 
-        "         rol  %[rgb]               ; 1       // shift in carry as red bit     \n"
+        "         rol  %[rgb]               ; 1       // shift in carry as red bit      \n"
         "         out  %[port], %[rgb]      ; 1       // write rgb data to port (with SHCP = STCP = LO) \n"
+        "         ; // Note: we do NOT set SHCP HI right now but only a little (3 cycles) later   \n"
+        "pwm_column_01:    \n"
+        "         ldi  %[rgb], %[rgb_init]  ; 1       // init %[rgb]                    \n"
+        "pwm_blue_01:                                                                  \n"
+        "         ld   __tmp_reg__, %a1+    ; 2       // fetch blue channel value       \n"
+        "         sbi  %[port], %[shcp_bit] ; 2       // SHCP hi on PORTD               \n"
+        "         cp   %[tick], __tmp_reg__ ; 1       // carry bit is set iff tick < blue  \n" 
+        "         rol  %[rgb]               ; 1       // shift in carry as blue bit     \n"
+        "pwm_green_01:                                                                 \n"
+        "         ld   __tmp_reg__, %a1+    ; 2       // fetch green channel value      \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // carry bit is set iff tick < green  \n" 
+        "         rol  %[rgb]               ; 1       // shift in carry as green bit    \n"
+        "pwm_red_01:                                                                   \n"
+        "         ld   __tmp_reg__, %a1+    ; 2       // fetch red channel value        \n" 
+        "         cp   %[tick], __tmp_reg__ ; 1       // carry bit is set iff tick < red  \n" 
+        "         rol  %[rgb]               ; 1       // shift in carry as red bit      \n"
+        "         out  %[port], %[rgb]      ; 1       // write rgb data to port (with SHCP = STCP = LO) \n"
+        "pwm_loop_tail:                                                                 \n"
         "         ; // Note: we do NOT set SHCP HI right now but only a little later (at beginning of loop or after last col, resp.)  \n"
         "         dec  %[col]               ; 1       // next column                    \n" 
         "         brne pwm_tick_loop        ; 1/2     // repeat if %[col] still > 0     \n"
         "pwm_tick_end:                                                                  \n"
-        "         sbi  %[port], %[shcp_bit] ; 2       // SHCP hi on PORTD (after last col) \n"
+        "         nop                       ; 1       // let's have SHCP HI *always* 3 cycles after out \n"
+        "         sbi  %[port], %[shcp_bit] ; 2       // SHCP HI on PORTD (after last col) \n"
         : [col]      "+r"  (col), // "r" means any register
                      "+e"  (rowData) // %a1
         : [tick]     "r"   (tick), 
           [port]     "I"   (_SFR_IO_ADDR(s595_DS_port)),
-          [rgb]      "d"   (0),  // "d" means upper register
+          [rgb_init] "I"   (rgb_reg_init),
+          [rgb]      "r"   (rgb_reg_init),
           [rgb_001]  "I"   (                                         _BV(s595_DS_bit) ),
           [rgb_010]  "I"   (                     _BV(s595_DSb_bit)                    ),
           [rgb_011]  "I"   (                     _BV(s595_DSb_bit) | _BV(s595_DS_bit) ),
