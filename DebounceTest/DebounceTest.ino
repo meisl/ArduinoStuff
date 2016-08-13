@@ -47,14 +47,13 @@ long t_edge = 0;
 
 #define backlog_size 100
 long backlog[backlog_size];
-volatile int backlog_idx_in = 0;
-volatile int backlog_idx_out = 0;
-volatile int backlog_pending = 0;
-volatile long backlog_missed = 0;
+volatile byte backlog_idx_in = 0;
+volatile byte backlog_idx_out = 0;
+volatile byte backlog_pending = 0;
+volatile int backlog_missed = 0;
 
 
 bool write_backlog(long t) {
-  int idx_delta = backlog_idx_in - backlog_idx_out;
   if (backlog_pending < backlog_size) {
     if (backlog_idx_in == backlog_size) { // wrap around at end
       backlog_idx_in = 0;  
@@ -87,7 +86,14 @@ long read_backlog() {
 long lastChanged = 0;
 void onButtonChange() {
   long now = micros();
-  write_backlog(now - lastChanged);
+  long data = now - lastChanged;
+  initialButtonState = !initialButtonState;
+  if (initialButtonState == HIGH) {
+    data &= 0xFFFFFFFE;
+  } else {
+    data |= 0x00000001;
+  }
+  write_backlog(data);
   lastChanged = now;
 }
 
@@ -121,17 +127,23 @@ void loop() {
       firstTime = false;
     }
     while ( (t = read_backlog()) >= 0) {
-      buttonState = !buttonState;
+      buttonState = (t & 1) ? HIGH : LOW;   //  !buttonState;
       float millis = float(t) / 1000.0;
       if (millis > 20) {
         burstCount = 0;
         burstTime = 0;
-        Serial.println("--------------");  
+        Serial.print("\t");  
       } else {
         burstTime += millis;
         burstCount++;
+        Serial.print("*\t");  
       }
       Serial.print(buttonState);
+      if (buttonState == HIGH) {
+        Serial.print("\t|__");
+      } else {
+        Serial.print("\t__|");
+      }
       Serial.print("\t");
       Serial.print(millis);
       Serial.print(" ms (burst ");
