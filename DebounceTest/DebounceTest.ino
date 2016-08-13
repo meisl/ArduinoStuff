@@ -46,14 +46,14 @@ long debounceDelay = 50;    // the debounce time; increase if the output flicker
 long t_edge = 0;
 
 #define backlog_size 100
-long backlog[backlog_size];
+uint16_t backlog[backlog_size];
 volatile byte backlog_idx_in = 0;
 volatile byte backlog_idx_out = 0;
 volatile byte backlog_pending = 0;
 volatile int backlog_missed = 0;
 
 
-bool write_backlog(long t) {
+bool write_backlog(uint16_t t) {
   if (backlog_pending < backlog_size) {
     if (backlog_idx_in == backlog_size) { // wrap around at end
       backlog_idx_in = 0;  
@@ -67,27 +67,30 @@ bool write_backlog(long t) {
   }
 }
 
-long read_backlog() {
-  long result = -1;
+bool read_backlog(uint16_t* data_ptr) {
   if (backlog_pending > 0) {
     if (backlog_idx_out == backlog_size) { // wrap around at end
       backlog_idx_out = 0;
     }
-    result = backlog[backlog_idx_out++];
+    *data_ptr = backlog[backlog_idx_out++];
     backlog_pending--;
     if (backlog_idx_out == backlog_idx_in) {
       backlog_missed = 0;  
     }
-    return result;
+    return true;
   }
-  return result;
+  return false;
 }
 
 long lastChanged = 0;
 void onButtonChange() {
   long now = micros();
   long data = now - lastChanged;
+  data >>= 2;
   initialButtonState = !initialButtonState;
+  if (data > 0xFFFF) {
+    data = 0;  
+  }
   if (initialButtonState == HIGH) {
     data &= 0xFFFFFFFE;
   } else {
@@ -117,7 +120,7 @@ void loop() {
   static bool firstTime = true;
   static int buttonState;
   if (Serial) {
-    long t;
+    uint16_t t;
     int burstCount = 0;
     float burstTime = 0;
     if (firstTime) {
@@ -126,9 +129,12 @@ void loop() {
       buttonState = initialButtonState;
       firstTime = false;
     }
-    while ( (t = read_backlog()) >= 0) {
+    while (read_backlog(&t)) {
       buttonState = (t & 1) ? HIGH : LOW;   //  !buttonState;
-      float millis = float(t) / 1000.0;
+      float millis = 99999.99;
+      if (t > 1) {
+        millis = float(t) * 0.004;
+      }
       if (millis > 20) {
         burstCount = 0;
         burstTime = 0;
