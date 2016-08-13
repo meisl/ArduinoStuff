@@ -27,16 +27,18 @@
  http://www.arduino.cc/en/Tutorial/Debounce
  */
 
-// constants won't change. They're used here to
 // set pin numbers:
-const int buttonPin = 2;    // the number of the pushbutton pin
-const int ledPin = 13;      // the number of the LED pin
+#define buttonPin 2    // the number of the pushbutton pin
+#define ledPin 13      // the number of the LED pin
+
+#define buttonPort digitalPinToPort(buttonPin)
+#define buttonBit  digitalPinToBitMask(buttonPin)
 
 // Variables will change:
 int ledState = HIGH;         // the current state of the output pin
-int buttonState;             // the current reading from the input pin
-int lastButtonState = LOW;   // the previous reading from the input pin
-int initialButtonState;
+bool buttonState;            // the current reading from the input pin
+bool lastButtonState = LOW;  // the previous reading from the input pin
+bool initialButtonState;
 
 // the following variables are long's because the time, measured in miliseconds,
 // will quickly become a bigger number than can be stored in an int.
@@ -75,7 +77,7 @@ bool read_backlog(uint16_t* data_ptr) {
     *data_ptr = backlog[backlog_idx_out++];
     backlog_pending--;
     if (backlog_idx_out == backlog_idx_in) {
-      backlog_missed = 0;  
+      //backlog_missed = 0;  
     }
     return true;
   }
@@ -84,20 +86,25 @@ bool read_backlog(uint16_t* data_ptr) {
 
 long lastChanged = 0;
 void onButtonChange() {
-  long now = micros();
-  long data = now - lastChanged;
-  data >>= 2;
-  initialButtonState = !initialButtonState;
-  if (data > 0xFFFF) {
-    data = 0;  
+  bool currentButtonState = (*portInputRegister(buttonPort) & buttonBit) ? HIGH : LOW;
+  if (currentButtonState == lastButtonState) {
+    backlog_missed ++;  
   }
-  if (initialButtonState == HIGH) {
-    data &= 0xFFFFFFFE;
-  } else {
-    data |= 0x00000001;
-  }
-  write_backlog(data);
-  lastChanged = now;
+    long now = micros();
+    long data = now - lastChanged;
+    data >>= 2;
+    if (data > 0xFFFF) {
+      data = 0;  
+    }
+    if (currentButtonState) {
+      data |= 0x0001;
+    } else {
+      data &= 0xFFFE;
+    }
+    write_backlog(data);
+    lastChanged = now;
+    lastButtonState = currentButtonState;
+
 }
 
 void setup() {
@@ -106,6 +113,7 @@ void setup() {
   
   noInterrupts();
   initialButtonState = digitalRead(buttonPin);
+  lastButtonState = initialButtonState;
   attachInterrupt(digitalPinToInterrupt(buttonPin), onButtonChange, CHANGE);
   interrupts();
 
@@ -124,6 +132,11 @@ void loop() {
     int burstCount = 0;
     float burstTime = 0;
     if (firstTime) {
+      Serial.print("button port: ");
+      Serial.println(buttonPort);
+      Serial.print("button bitmask: ");
+      Serial.println(buttonBit);
+      
       Serial.print("initial button state: ");
       Serial.println(initialButtonState);
       buttonState = initialButtonState;
