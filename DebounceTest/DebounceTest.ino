@@ -3,21 +3,12 @@
 // c:\Dokumente und Einstellungen\Administrator\Lokale Einstellungen\Temp\builde4ffd1dece802e2f6360a136b21afb9d.tmp>f:\arduino-1.6.9\hardware\tools\avr\bin\avr-objdump.exe -S DebounceTest.ino.elf > DebounceTest.disS
 
 /*
- Debounce
-
- Each time the input pin goes from LOW to HIGH (e.g. because of a push-button
- press), the output pin is toggled from LOW to HIGH or HIGH to LOW.  There's
- a minimum delay between toggles to debounce the circuit (i.e. to ignore
- noise).
+ DebounceTest
 
  The circuit:
- * LED attached from pin 13 to ground
- * pushbutton attached from pin 2 to +5V
- * 10K resistor attached from pin 2 to ground
-
- * Note: On most Arduino boards, there is already an LED on the board
- connected to pin 13, so you don't need any extra components for this example.
-
+ * +5V -> 10K resistor -> pushbutton -> ground
+ *                     |-> 2K2 resistor -> (anode of) 1µF capacitor (of which cathode goes to) -> pin 2
+ 
 
  created 21 November 2006
  by David A. Mellis
@@ -31,14 +22,9 @@
  http://www.arduino.cc/en/Tutorial/Debounce
  */
 
-// set pin numbers:
 #define buttonPin 2    // the number of the pushbutton pin
-#define ledPin 13      // the number of the LED pin
-
 #define buttonPort    digitalPinToPort(buttonPin)
 #define buttonBitMask digitalPinToBitMask(buttonPin)
-
-
 
 #define TIMER1_PRESCALE_STOPPED 0
 #define TIMER1_PRESCALE_BY_1    (                       _BV(CS10))  //  16.000 MHz /  62.5 ns
@@ -47,10 +33,6 @@
 #define TIMER1_PRESCALE_BY_256  (_BV(CS12)                       )  //  62.500 KHz /  16.0 µs
 #define TIMER1_PRESCALE_BY_1024 (_BV(CS12)            | _BV(CS10))  //  15.625 KHz /  64.0 µs
 
-
-
-// Variables will change:
-int ledState = HIGH;         // the current state of the output pin
 byte initialButtonState;
 byte lastButtonState;
 
@@ -90,31 +72,6 @@ bool read_backlog(uint16_t* data_ptr) {
   }
   return false;
 }
-/*
-long lastChanged = 0;
-void onButtonChange() {
-  bool currentButtonState = (*portInputRegister(buttonPort) & buttonBit) ? HIGH : LOW;
-  if (currentButtonState == lastButtonState) {
-    backlog_missed++;  
-  }
-    long now = micros();
-    long data = now - lastChanged;
-    data >>= 2;
-    if (data > 0xFFFF) {
-      data = 0;  
-    }
-    if (currentButtonState) {
-      data |= 0x0001;
-    } else {
-      data &= 0xFFFE;
-    }
-    write_backlog(data);
-    lastChanged = now;
-    lastButtonState = currentButtonState;
-
-}
-*/
-
 
 uint16_t ticksSinceEdge = 0;
 
@@ -137,12 +94,10 @@ ISR(TIMER1_COMPA_vect) {
 
 void setup() {
   pinMode(buttonPin, INPUT);
-  pinMode(ledPin, OUTPUT);
   
   noInterrupts();
   initialButtonState = digitalRead(buttonPin);
   lastButtonState = initialButtonState ? buttonBitMask : 0;
-  //attachInterrupt(digitalPinToInterrupt(buttonPin), onButtonChange, CHANGE);
   
   // Timer 1 (16 bit)
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                          // TIMER1 CTC mode ("Clear Timer on Compare")
@@ -151,15 +106,9 @@ void setup() {
   OCR1A  = (10 * 2) - 1;    // compare match register: interrupt every 10 µs ~> frequency 100 kHz
 
   interrupts();
-  
-  
-
-  // set initial LED state
-  digitalWrite(ledPin, ledState);
 
   Serial.begin(57600);
 }
-
 
 
 void loop() {
@@ -228,43 +177,5 @@ void loop() {
  
   }
 
-
-
-  /*
-  // check to see if you just pressed the button
-  // (i.e. the input went from LOW to HIGH),  and you've waited
-  // long enough since the last press to ignore any noise:
-
-  // If the switch changed, due to noise or pressing:
-  if (reading != lastButtonState) {
-    // reset the debouncing timer
-    lastDebounceTime = millis();
-  }
-
-  if ((millis() - lastDebounceTime) > debounceDelay) {
-    // whatever the reading is at, it's been there for longer
-    // than the debounce delay, so take it as the actual current state:
-
-    // if the button state has changed:
-    if (reading != buttonState) {
-      buttonState = reading;
-
-      // only toggle the LED if the new button state is HIGH
-      if (buttonState == HIGH) {
-        ledState = !ledState;
-      }
-    }
-  }
-
-
-  
-  // set the LED:
-  digitalWrite(ledPin, ledState);
-
-  // save the reading.  Next time through the loop,
-  // it'll be the lastButtonState:
-  lastButtonState = reading;
-
-  */
 }
 
