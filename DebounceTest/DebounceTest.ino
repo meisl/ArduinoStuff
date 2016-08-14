@@ -137,22 +137,40 @@ void loop() {
     while (read_backlog(&t)) {
       buttonState = (t & 1);
       t >>= 1;
+      float log_t = log(t)*2;
       if (t > 2000) { // 20 ms
         burstCount = 0;
         burstTime = 0;
         //Serial.print("\t");  
-        for (int i = 100; i > 0; i--) { Serial.println((1 - buttonState) * 8 - 4); }
+        for (int i = 100; i > 0; i--) { 
+          Serial.print((1 - buttonState) * 8 - 4); 
+          Serial.print("\t"); Serial.print(log_t);
+          Serial.print("\t0");
+          Serial.println();
+        }
       } else {
         burstTime += t;
         burstCount++;
         if (t > 100) {
-          for (int i = 100; i > 0; i--) { Serial.println(1 - buttonState); }
+          for (int i = 100; i > 0; i--) {
+            Serial.print((1 - buttonState) * 10 - 5);
+            Serial.print("\t"); Serial.print(log_t);
+            Serial.print("\t0");
+            Serial.println();
+          }
         } else {
-          for (int i = t; i > 0; i--) { Serial.println(1 - buttonState); }
+          for (int i = t; i > 0; i--) {
+            Serial.print((1 - buttonState) * 10 - 5);
+            Serial.print("\t"); Serial.print(log_t);
+            Serial.print("\t0");
+            Serial.println();
+          }
         }
         //Serial.print("*\t");  
       }
-      Serial.println(buttonState);
+      Serial.print(buttonState);
+      Serial.print("\t");
+      Serial.println(log_t);
 /*
       if (buttonState) {
         Serial.print("\t|__");
