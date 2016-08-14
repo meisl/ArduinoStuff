@@ -1,3 +1,7 @@
+
+// to disassemble:
+// c:\Dokumente und Einstellungen\Administrator\Lokale Einstellungen\Temp\builde4ffd1dece802e2f6360a136b21afb9d.tmp>f:\arduino-1.6.9\hardware\tools\avr\bin\avr-objdump.exe -S DebounceTest.ino.elf > DebounceTest.disS
+
 /*
  Debounce
 
@@ -31,21 +35,24 @@
 #define buttonPin 2    // the number of the pushbutton pin
 #define ledPin 13      // the number of the LED pin
 
-#define buttonPort digitalPinToPort(buttonPin)
-#define buttonBit  digitalPinToBitMask(buttonPin)
+#define buttonPort    digitalPinToPort(buttonPin)
+#define buttonBitMask digitalPinToBitMask(buttonPin)
+
+
+
+#define TIMER1_PRESCALE_STOPPED 0
+#define TIMER1_PRESCALE_BY_1    (                       _BV(CS10))  //  16.000 MHz /  62.5 ns
+#define TIMER1_PRESCALE_BY_8    (           _BV(CS11)            )  //   2.000 MHz / 500.0 ns
+#define TIMER1_PRESCALE_BY_64   (           _BV(CS11) | _BV(CS10))  // 250.000 KHz /   4.0 µs
+#define TIMER1_PRESCALE_BY_256  (_BV(CS12)                       )  //  62.500 KHz /  16.0 µs
+#define TIMER1_PRESCALE_BY_1024 (_BV(CS12)            | _BV(CS10))  //  15.625 KHz /  64.0 µs
+
+
 
 // Variables will change:
 int ledState = HIGH;         // the current state of the output pin
-bool buttonState;            // the current reading from the input pin
-bool lastButtonState = LOW;  // the previous reading from the input pin
-bool initialButtonState;
-
-// the following variables are long's because the time, measured in miliseconds,
-// will quickly become a bigger number than can be stored in an int.
-long lastDebounceTime = 0;  // the last time the output pin was toggled
-long debounceDelay = 50;    // the debounce time; increase if the output flickers
-
-long t_edge = 0;
+byte initialButtonState;
+byte lastButtonState;
 
 #define backlog_size 100
 uint16_t backlog[backlog_size];
@@ -83,12 +90,12 @@ bool read_backlog(uint16_t* data_ptr) {
   }
   return false;
 }
-
+/*
 long lastChanged = 0;
 void onButtonChange() {
   bool currentButtonState = (*portInputRegister(buttonPort) & buttonBit) ? HIGH : LOW;
   if (currentButtonState == lastButtonState) {
-    backlog_missed ++;  
+    backlog_missed++;  
   }
     long now = micros();
     long data = now - lastChanged;
@@ -106,6 +113,27 @@ void onButtonChange() {
     lastButtonState = currentButtonState;
 
 }
+*/
+
+
+uint16_t ticksSinceEdge = 0;
+
+ISR(TIMER1_COMPA_vect) {
+  if (++ticksSinceEdge == 0) {
+     ticksSinceEdge = 0x7FFF;
+  }
+  byte currentButtonState = (*portInputRegister(buttonPort) & buttonBitMask);
+//  byte currentButtonState = PORTD & buttonBitMask;
+  if (currentButtonState != lastButtonState) {
+    uint16_t data = ticksSinceEdge << 1;
+    if (currentButtonState) {
+      data |= 1;  
+    }
+    write_backlog(data);
+    ticksSinceEdge = 0;
+    lastButtonState = currentButtonState;
+  }
+}
 
 void setup() {
   pinMode(buttonPin, INPUT);
@@ -113,9 +141,18 @@ void setup() {
   
   noInterrupts();
   initialButtonState = digitalRead(buttonPin);
-  lastButtonState = initialButtonState;
-  attachInterrupt(digitalPinToInterrupt(buttonPin), onButtonChange, CHANGE);
+  lastButtonState = initialButtonState ? buttonBitMask : 0;
+  //attachInterrupt(digitalPinToInterrupt(buttonPin), onButtonChange, CHANGE);
+  
+  // Timer 1 (16 bit)
+  TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                          // TIMER1 CTC mode ("Clear Timer on Compare")
+  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | TIMER1_PRESCALE_BY_8;   // TIMER1 CTC mode, @2MHz
+  TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
+  OCR1A  = (10 * 2) - 1;    // compare match register: interrupt every 10 µs ~> frequency 100 kHz
+
   interrupts();
+  
+  
 
   // set initial LED state
   digitalWrite(ledPin, ledState);
@@ -124,54 +161,69 @@ void setup() {
 }
 
 
+
 void loop() {
   static bool firstTime = true;
   static int buttonState;
   if (Serial) {
     uint16_t t;
     int burstCount = 0;
-    float burstTime = 0;
+    uint32_t burstTime = 0;
     if (firstTime) {
+      /*
       Serial.print("button port: ");
       Serial.println(buttonPort);
       Serial.print("button bitmask: ");
-      Serial.println(buttonBit);
+      Serial.println(buttonBitMask);
       
-      Serial.print("initial button state: ");
+      Serial.print("initialButtonState: ");
       Serial.println(initialButtonState);
+      Serial.print("lastButtonState: ");
+      Serial.println(lastButtonState);
+      */
       buttonState = initialButtonState;
       firstTime = false;
     }
     while (read_backlog(&t)) {
-      buttonState = (t & 1) ? HIGH : LOW;   //  !buttonState;
-      float millis = 99999.99;
-      if (t > 1) {
-        millis = float(t) * 0.004;
-      }
-      if (millis > 20) {
+      buttonState = (t & 1);
+      t >>= 1;
+      if (t > 2000) { // 20 ms
         burstCount = 0;
         burstTime = 0;
-        Serial.print("\t");  
+        //Serial.print("\t");  
+        for (int i = 10; i > 0; i--) { Serial.println(1 - buttonState); }
+        for (int i = 40; i > 0; i--) { Serial.println((1 - buttonState) * 8 - 4); }
+        for (int i = 10; i > 0; i--) { Serial.println(1 - buttonState); }
       } else {
-        burstTime += millis;
+        burstTime += t;
         burstCount++;
-        Serial.print("*\t");  
+        if (t > 500) {
+          for (int i = 10; i > 0; i--) { Serial.println(1 - buttonState); }
+          for (int i = 40; i > 0; i--) { Serial.println((1 - buttonState) * 8 - 4); }
+          for (int i = 10; i > 0; i--) { Serial.println(1 - buttonState); }
+        } else {
+          for (int i = t; i > 0; i--) { Serial.println(1 - buttonState); }
+        }
+        //Serial.print("*\t");  
       }
-      Serial.print(buttonState);
-      if (buttonState == HIGH) {
+      Serial.println(buttonState);
+/*
+      if (buttonState) {
         Serial.print("\t|__");
       } else {
         Serial.print("\t__|");
       }
       Serial.print("\t");
-      Serial.print(millis);
-      Serial.print(" ms (burst ");
+      Serial.print(t);
+      Serial.print("0 micros (burst ");
       Serial.print(burstCount);
       Serial.print(", ");
       Serial.print(burstTime);
-      Serial.print(" ms / ");
+      Serial.print("0 micros / ");
       Serial.print(backlog_missed);
       Serial.println(" missed)");
+ */
+    
     }
  
   }
