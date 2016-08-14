@@ -79,8 +79,9 @@ ISR(TIMER1_COMPA_vect) {
   if (++ticksSinceEdge == 0) {
      ticksSinceEdge = 0x7FFF;
   }
-  byte currentButtonState = (*portInputRegister(buttonPort) & buttonBitMask);
-//  byte currentButtonState = PORTD & buttonBitMask;
+//  byte currentButtonState = (*portInputRegister(buttonPort) & buttonBitMask);
+//  byte currentButtonState = _SFR_IO_ADDR(PORTD) & buttonBitMask;
+  byte currentButtonState = PIND & 0x04;
   if (currentButtonState != lastButtonState) {
     uint16_t data = ticksSinceEdge << 1;
     if (currentButtonState) {
@@ -140,16 +141,12 @@ void loop() {
         burstCount = 0;
         burstTime = 0;
         //Serial.print("\t");  
-        for (int i = 10; i > 0; i--) { Serial.println(1 - buttonState); }
-        for (int i = 40; i > 0; i--) { Serial.println((1 - buttonState) * 8 - 4); }
-        for (int i = 10; i > 0; i--) { Serial.println(1 - buttonState); }
+        for (int i = 100; i > 0; i--) { Serial.println((1 - buttonState) * 8 - 4); }
       } else {
         burstTime += t;
         burstCount++;
-        if (t > 500) {
-          for (int i = 10; i > 0; i--) { Serial.println(1 - buttonState); }
-          for (int i = 40; i > 0; i--) { Serial.println((1 - buttonState) * 8 - 4); }
-          for (int i = 10; i > 0; i--) { Serial.println(1 - buttonState); }
+        if (t > 100) {
+          for (int i = 100; i > 0; i--) { Serial.println(1 - buttonState); }
         } else {
           for (int i = t; i > 0; i--) { Serial.println(1 - buttonState); }
         }
