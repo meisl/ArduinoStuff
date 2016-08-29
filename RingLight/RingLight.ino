@@ -1,12 +1,17 @@
 
+// The pins used to communicate with the shift registers (74HC595)
+#define enablePin 12 // active-low; aka OE
+#define clearPin  11 // active-low; aka MR
+#define latchPin  10 // active-high; aka STCP/ST_CP
+#define clockPin   9 // active-high; aka SHCP/SH_CP
+#define dataPin    8 // active-high; aka DS
+
+// You can connect LEDs (with resistor) between the above 
+// pins and GND to see what's going on. But in order to be
+// able to see anything useful, things need to be slowed down:
 #define visible_signals
 #define signal_duration_ms 50
 
-#define enablePin 12
-#define clearPin  11
-#define latchPin  10
-#define clockPin   9
-#define dataPin    8
 
 void setup() {
   pinMode(enablePin, OUTPUT);
@@ -42,7 +47,7 @@ void pulse(int pin, bool active_high) {
 }
 
 void reset595() {
-  pulse(clearPin, LOW);   // falling edge here clears the shiftregs; leaves clearPin HIGH (it's low-active)
+  pulse(clearPin, LOW);   // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
   pulse(latchPin, HIGH);  // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
 }
 
