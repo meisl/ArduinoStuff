@@ -1,11 +1,17 @@
 #include <Arduino.h>
 
 // The pins used to communicate with the shift registers (74HC595)
-#define enablePin  9 // active-low; aka OE
-#define clearPin   8 // active-low; aka MR
-#define latchPin   7 // active-high; aka STCP/ST_CP
-#define clockPin   6 // active-high; aka SHCP/SH_CP
-#define dataPin    5 // active-high; aka DS
+#define enablePin  7 // active-low; aka OE
+#define clearPin   6 // active-low; aka MR
+#define latchPin   5 // active-high; aka STCP/ST_CP
+#define clockPin   4 // active-high; aka SHCP/SH_CP
+#define dataPin    3 // active-high; aka DS
+
+#define enableBit enablePin
+#define clearBit  clearPin
+#define latchBit  latchPin
+#define clockBit  clockPin
+#define dataBit   dataPin
 
 // You can connect LEDs (with resistor) between the above 
 // pins and GND to see what's going on. But in order to be
@@ -14,6 +20,87 @@
 #define signal_duration_ms 50
 
 #define MAX_BRIGHTNESS 32
+
+
+void pulseXXX(int pin, bool active_high) {
+#ifdef visible_signals
+  delay(signal_duration_ms);
+#endif
+  digitalWrite(pin,  active_high); // true  == HIGH
+#ifdef visible_signals
+  delay(signal_duration_ms);
+#endif
+  digitalWrite(pin, !active_high); // false == LOW
+#ifdef visible_signals
+  delay(signal_duration_ms);
+#endif
+}
+
+
+// =225/318
+#define setPin(pin) digitalWrite(pin, HIGH)
+#define clrPin(pin) digitalWrite(pin, LOW)
+#define pulseH(pin) pulseXXX(pin, HIGH);
+#define pulseL(pin) pulseXXX(pin, LOW);
+#define pulse_clear() pulseL(clearPin) // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
+#define pulse_latch() pulseH(latchPin) // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
+#define pulse_clock() pulseH(clockPin) // rising edge here shifts in the bit currently present at DS; leaves clockPin LOW
+#define enable_on()  clrPin(enablePin) // active-low
+#define enable_off() setPin(enablePin) // -"-
+#define set_data()   setPin(dataPin)
+#define clr_data()   clrPin(dataPin)
+
+
+/*
+// =64/107
+#define setPin(pin) *(portOutputRegister(digitalPinToPort(pin))) |=  (byte)digitalPinToBitMask(pin)
+#define clrPin(pin) *(portOutputRegister(digitalPinToPort(pin))) &= ~(byte)digitalPinToBitMask(pin)
+#define pulseH(pin) setPin(pin); clrPin(pin)
+#define pulseL(pin) clrPin(pin); setPin(pin)
+#define pulse_clear() pulseL(clearPin) // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
+#define pulse_latch() pulseH(latchPin) // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
+#define pulse_clock() pulseH(clockPin) // rising edge here shifts in the bit currently present at DS; leaves clockPin LOW
+#define enable_on()  clrPin(enablePin) // active-low
+#define enable_off() setPin(enablePin) // -"-
+#define set_data()   setPin(dataPin)
+#define clr_data()   clrPin(dataPin)
+*/
+
+/*
+// =23/47
+#define setPin(pin) PORTD |=  (byte)digitalPinToBitMask(pin)
+#define clrPin(pin) PORTD &= ~(byte)digitalPinToBitMask(pin)
+#define pulseH(pin) setPin(pin); clrPin(pin)
+#define pulseL(pin) clrPin(pin); setPin(pin)
+#define pulse_clear() pulseL(clearPin) // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
+#define pulse_latch() pulseH(latchPin) // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
+#define pulse_clock() pulseH(clockPin) // rising edge here shifts in the bit currently present at DS; leaves clockPin LOW
+#define enable_on()  clrPin(enablePin) // active-low
+#define enable_off() setPin(enablePin) // -"-
+#define set_data()   setPin(dataPin)
+#define clr_data()   clrPin(dataPin)
+*/
+
+/*
+// =8/21
+#define setBit(bit) asm volatile("sbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bit))
+#define clrBit(bit) asm volatile("cbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bit))
+#define pulseBitH(bit) setBit(bit); clrBit(bit);
+#define pulseBitL(bit) clrBit(bit); setBit(bit);
+#define pulse_clear() pulseBitL(clearBit) // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
+#define pulse_latch() pulseBitH(latchBit) // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
+#define pulse_clock() pulseBitH(clockBit) // rising edge here shifts in the bit currently present at DS; leaves clockPin LOW
+#define enable_on()  clrBit(enableBit) // active-low
+#define enable_off() setBit(enableBit) // -"-
+#define set_data()   setBit(dataBit)
+#define clr_data()   clrBit(dataBit)
+*/
+
+void reset595() {
+  pulse_clear();  // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
+  pulse_latch();  // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
+}
+
 
 #define TIMER1_PRESCALE_STOPPED 0
 #define TIMER1_PRESCALE_BY_1    (                       _BV(CS10))  //  16.000 MHz /  62.5 ns
@@ -68,24 +155,6 @@ void setup() {
   Serial.begin(57600);
 }
 
-void pulse(int pin, bool active_high) {
-#ifdef visible_signals
-  delay(signal_duration_ms);
-#endif
-  digitalWrite(pin,  active_high); // true  == HIGH
-#ifdef visible_signals
-  delay(signal_duration_ms);
-#endif
-  digitalWrite(pin, !active_high); // false == LOW
-#ifdef visible_signals
-  delay(signal_duration_ms);
-#endif
-}
-
-void reset595() {
-  pulse(clearPin, LOW);   // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
-  pulse(latchPin, HIGH);  // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
-}
 
 #define CMD_NONE        0
 #define CMD_UNKNOWN     1
@@ -152,7 +221,7 @@ volatile animFuncPtr animations[] = {
 };
 volatile uint16_t animStates[sizeof(animations)];
 
-volatile byte currentAnim = 3;
+volatile byte currentAnim = 1;
 volatile uint16_t brightness = 1;
 volatile uint32_t animationDelay = 5; // in milliseconds
 volatile uint32_t animationTick = 0;
@@ -162,13 +231,16 @@ volatile uint16_t currentMask;
 
 ISR(TIMER1_COMPA_vect) {
   if (++pwm_tick >= MAX_BRIGHTNESS) {
+    uint16_t t = TCNT1;
     pwm_tick = 0;
     if (brightness == 0) {
-      digitalWrite(enablePin, HIGH); // disable it  
+      enable_off();
     } else {
-      digitalWrite(enablePin, LOW); // enable it  
+      enable_on();
     }
-    pulse(latchPin, HIGH); // transfer last state to outputs
+    pulse_latch(); // transfer last state to outputs
+    t = TCNT1 - t;
+    Serial.println(t);
     currentMask = 1 << 15; // initialize mask for next shifting cycle (pwm_ticks 1..16)
 
     if (currentAnim == 0) {
@@ -186,16 +258,16 @@ ISR(TIMER1_COMPA_vect) {
     }
   } else {
     if (pwm_tick == brightness) {
-      digitalWrite(enablePin, HIGH); // disable it  
+      enable_off();
     }
     if (pwm_tick <= 16) {
       //Serial.println(currentMask, HEX);
       if (currentMask & currentState) {
-        digitalWrite(dataPin, HIGH);
+        set_data();
       } else {
-        digitalWrite(dataPin, LOW);
+        clr_data();
       }
-      pulse(clockPin, HIGH);
+      pulse_clock();
       currentMask >>= 1;
     }
   }
@@ -210,7 +282,7 @@ void loop() {
       serialConn = true;
     }
     byte cmd = parseCommand();
-    int a, b, c;
+    int a;
     switch (cmd) {
       case CMD_NONE:
       case CMD_EMPTY:
