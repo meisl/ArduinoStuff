@@ -9,7 +9,7 @@
 // You can connect LEDs (with resistor) between the above 
 // pins and GND to see what's going on. But in order to be
 // able to see anything useful, things need to be slowed down:
-#define visible_signals
+//#define visible_signals
 #define signal_duration_ms 50
 
 
@@ -91,31 +91,38 @@ void setBrightness(byte b) {
 void anim_ring_cw() {
   static uint16_t data = 0;
   if (~data == 0) {
-    data = 0;
-    reset595();
+    data = 1;
+  } else {
+    data <<= 1;
+    data |= 1;
   }
-  data <<= 1;
-  data |= 1;
-
-  //shiftOut(dataPin, clockPin, MSBFIRST, highByte(data));  
-  //shiftOut(dataPin, clockPin, MSBFIRST, lowByte(data));
-
-
-  if (data & 1) {
-    digitalWrite(dataPin, HIGH);
-  }
-  pulse(clockPin, HIGH);
-  digitalWrite(dataPin, LOW);
+  shiftOut(dataPin, clockPin, MSBFIRST, highByte(data));  
+  shiftOut(dataPin, clockPin, MSBFIRST, lowByte(data));
  
+  pulse(latchPin, HIGH);
+}
+
+void anim_ring_cc() {
+  static uint16_t data = 0;
+  if (~data == 0) {
+    data = 1;
+  } else {
+    data >>= 1;
+    data |= ((1 << 15) | 1);
+  }
+
+  shiftOut(dataPin, clockPin, MSBFIRST, highByte(data));  
+  shiftOut(dataPin, clockPin, MSBFIRST, lowByte(data));
   pulse(latchPin, HIGH);
 }
 
 typedef void (*voidFuncPtr)(void); 
 static volatile voidFuncPtr animations[] = {
-  anim_ring_cw
+  anim_ring_cw,
+  anim_ring_cc,
 };
 
-byte currentAnim = 0;
+byte currentAnim = 2;
 bool serialConn = false;
 
 void loop() {
@@ -152,7 +159,10 @@ void loop() {
           } else {
             Serial.println(a);
           }
-          currentAnim = a;
+          if (a != currentAnim) {
+            currentAnim = a;
+            reset595();
+          }
         }
         break;
       default:
