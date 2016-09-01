@@ -55,6 +55,7 @@ void reset595() {
 #define CMD_UNKNOWN     1
 #define CMD_EMPTY       2
 #define CMD_BRIGHTNESS  3
+#define CMD_ANIM        4
 
 int arguments[3];
 
@@ -70,6 +71,10 @@ byte parseCommand() {
       c = CMD_BRIGHTNESS;
       arguments[0] = Serial.parseInt();
       break;
+    case 'a':
+      c = CMD_ANIM;
+      arguments[0] = Serial.parseInt();
+      break;
   }
 
   return c;
@@ -83,10 +88,8 @@ void setBrightness(byte b) {
   }
 }
 
-bool serialConn = false;
-uint16_t data = 0;
-
-void loop() {
+void anim_ring_cw() {
+  static uint16_t data = 0;
   if (~data == 0) {
     data = 0;
     reset595();
@@ -99,14 +102,27 @@ void loop() {
 
 
   if (data & 1) {
-    digitalWrite(dataPin, HIGH);  
+    digitalWrite(dataPin, HIGH);
   }
   pulse(clockPin, HIGH);
   digitalWrite(dataPin, LOW);
  
   pulse(latchPin, HIGH);
+}
 
+typedef void (*voidFuncPtr)(void); 
+static volatile voidFuncPtr animations[] = {
+  anim_ring_cw
+};
 
+byte currentAnim = 0;
+bool serialConn = false;
+
+void loop() {
+  if (currentAnim != 0) {
+    animations[currentAnim - 1]();
+  }
+  
   if (Serial) {
     if (!serialConn) { // greet if reconnected
       Serial.println("Hi there!");
@@ -124,12 +140,26 @@ void loop() {
         Serial.println(a);
         setBrightness(a);
         break;
+      case CMD_ANIM:
+        a = arguments[0];
+        if ((a < 0) || (a > sizeof(animations))) {
+          Serial.print("no such animation: ");
+          Serial.println(a);
+        } else {
+          Serial.print("animation: ");
+          if (a == 0) {
+            Serial.println("none");
+          } else {
+            Serial.println(a);
+          }
+          currentAnim = a;
+        }
+        break;
       default:
         Serial.print("unknown command ");
         Serial.println(cmd);
     }
     
-    Serial.println(data, HEX);
     
   } else {
     serialConn = false;  
