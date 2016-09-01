@@ -126,10 +126,6 @@ byte currentAnim = 2;
 bool serialConn = false;
 
 void loop() {
-  if (currentAnim != 0) {
-    animations[currentAnim - 1]();
-  }
-  
   if (Serial) {
     if (!serialConn) { // greet if reconnected
       Serial.println("Hi there!");
@@ -161,7 +157,6 @@ void loop() {
           }
           if (a != currentAnim) {
             currentAnim = a;
-            reset595();
           }
         }
         break;
@@ -169,12 +164,14 @@ void loop() {
         Serial.print("unknown command ");
         Serial.println(cmd);
     }
-    
-    
   } else {
     serialConn = false;  
   }
-  
+
+  if (currentAnim != 0) {
+    animations[currentAnim - 1]();
+  }
+
   delay(100);
 }
 
