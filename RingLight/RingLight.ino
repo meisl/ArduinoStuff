@@ -51,6 +51,37 @@ void reset595() {
   pulse(latchPin, HIGH);  // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
 }
 
+#define CMD_NONE        0
+#define CMD_UNKNOWN     1
+#define CMD_EMPTY       2
+#define CMD_BRIGHTNESS  3
+
+int arguments[3];
+
+byte parseCommand() {
+  byte c = CMD_UNKNOWN;
+  int ch = Serial.read();
+  switch (ch) {
+    case -1:   
+      return CMD_NONE;
+    case '\n':
+      return CMD_EMPTY;
+    case 'b':
+      c = CMD_BRIGHTNESS;
+      arguments[0] = Serial.parseInt();
+      break;
+  }
+
+  return c;
+}
+
+void setBrightness(byte b) {
+  if (b == 0) {
+    digitalWrite(enablePin, HIGH);
+  } else {
+    digitalWrite(enablePin, LOW);
+  }
+}
 
 bool serialConn = false;
 uint16_t data = 0;
@@ -81,7 +112,25 @@ void loop() {
       Serial.println("Hi there!");
       serialConn = true;
     }
-    Serial.println(data);
+    byte cmd = parseCommand();
+    int a, b, c;
+    switch (cmd) {
+      case CMD_NONE:
+      case CMD_EMPTY:
+        break;
+      case CMD_BRIGHTNESS:
+        Serial.print("brightness: ");
+        a = constrain(arguments[0], 0, 15);
+        Serial.println(a);
+        setBrightness(a);
+        break;
+      default:
+        Serial.print("unknown command ");
+        Serial.println(cmd);
+    }
+    
+    Serial.println(data, HEX);
+    
   } else {
     serialConn = false;  
   }
