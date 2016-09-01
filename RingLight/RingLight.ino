@@ -29,7 +29,7 @@ void setup() {
   digitalWrite(dataPin, LOW);
   digitalWrite(clockPin, LOW);
   
-  Serial.begin(9600);
+  Serial.begin(57600);
 }
 
 void pulse(int pin, bool active_high) {
