@@ -214,6 +214,9 @@ uint16_t rotateLeft(uint16_t x, byte n) {
   return x;
 }
 
+uint16_t rotateRight(uint16_t x, byte n) {
+  return rotateLeft(x, (16 - (n & 0xF)) & 0xF);
+}
 
 uint16_t anim_allOff(uint16_t last, uint32_t ms) {
   return 0;
@@ -258,6 +261,9 @@ uint16_t anim_fountain(uint16_t last, uint32_t ms) {
   return last;
 }
 
+uint16_t anim_quarters(uint16_t last, uint32_t ms) {
+  return last ? rotateLeft(last, 4) : 0x000F;
+}
 
 typedef uint16_t (*animFuncPtr)(uint16_t, uint32_t); 
 volatile animFuncPtr animations[] = {
@@ -266,6 +272,7 @@ volatile animFuncPtr animations[] = {
   anim_ring_cw,
   anim_wanderingDot1_cc,
   anim_fountain,
+  anim_quarters,
 };
 #define animationCount (sizeof(animations)/sizeof(animFuncPtr))
 volatile uint16_t animStates[animationCount];
