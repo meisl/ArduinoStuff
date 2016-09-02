@@ -223,15 +223,16 @@ uint16_t anim_allOn(uint16_t last, uint32_t ms) {
 
 typedef uint16_t (*animFuncPtr)(uint16_t, uint32_t); 
 volatile animFuncPtr animations[] = {
+  anim_allOff,
+  anim_allOn,
   anim_ring_cc,
   anim_ring_cw,
   anim_wanderingDot1_cc,
-  anim_allOff,
-  anim_allOn,
 };
-volatile uint16_t animStates[sizeof(animations)];
+#define animationCount (sizeof(animations)/sizeof(animFuncPtr))
+volatile uint16_t animStates[animationCount];
 
-volatile byte currentAnim = 1;
+volatile byte currentAnim = animationCount - 1;
 volatile uint16_t brightness = 1;
 volatile uint32_t animationDelay = 5; // in milliseconds
 volatile uint32_t animationTick = 0;
@@ -253,19 +254,13 @@ ISR(TIMER1_COMPA_vect) {
     t_avg = 0;
     currentMask = 1 << 15; // initialize mask for next shifting cycle (pwm_ticks 1..16)
 
-    if (currentAnim == 0) {
+    if (++animationTick > animationDelay) { // Note: it's NOT >= here!
+      uint16_t oldState = animStates[currentAnim];
+      currentState = animations[currentAnim](oldState, 0);
+      animStates[currentAnim] = currentState;
       animationTick = 0;
-    } else {
-      if (animationTick == 0) {
-        byte i = currentAnim - 1;
-        uint16_t oldState = animStates[i];
-        currentState = animations[i](oldState, 0);
-        animationTick = animationDelay;
-        animStates[i] = currentState;
-      } else {
-        animationTick--;
-      }
     }
+
   } else {
     t = TCNT1;
     if (pwm_tick == brightness) {
@@ -306,19 +301,13 @@ void loop() {
         break;
       case CMD_ANIM:
         a = arguments[0];
-        if ((a < 0) || (a > sizeof(animations))) {
+        if ((a < 0) || (a >= animationCount)) {
           Serial.print("no such animation: ");
           Serial.println(a);
         } else {
           Serial.print("animation: ");
-          if (a == 0) {
-            Serial.println("none");
-          } else {
-            Serial.println(a);
-          }
-          if (a != currentAnim) {
-            currentAnim = a;
-          }
+          Serial.println(a);
+          currentAnim = a;
         }
         break;
       case CMD_DELAY:
@@ -339,7 +328,7 @@ void loop() {
     serialConn = false;  
   }
 
-  delay(100);
+  delay(1);
 }
 
 
