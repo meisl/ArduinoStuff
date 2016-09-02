@@ -36,8 +36,8 @@ void pulseXXX(int pin, bool active_high) {
 #endif
 }
 
-
-// =225/318
+/*
+// =225/318/334
 #define setPin(pin) digitalWrite(pin, HIGH)
 #define clrPin(pin) digitalWrite(pin, LOW)
 #define pulseH(pin) pulseXXX(pin, HIGH);
@@ -49,10 +49,11 @@ void pulseXXX(int pin, bool active_high) {
 #define enable_off() setPin(enablePin) // -"-
 #define set_data()   setPin(dataPin)
 #define clr_data()   clrPin(dataPin)
+*/
 
 
 /*
-// =64/107
+// =64/107/140
 #define setPin(pin) *(portOutputRegister(digitalPinToPort(pin))) |=  (byte)digitalPinToBitMask(pin)
 #define clrPin(pin) *(portOutputRegister(digitalPinToPort(pin))) &= ~(byte)digitalPinToBitMask(pin)
 #define pulseH(pin) setPin(pin); clrPin(pin)
@@ -67,7 +68,7 @@ void pulseXXX(int pin, bool active_high) {
 */
 
 /*
-// =23/47
+// =23/47/79
 #define setPin(pin) PORTD |=  (byte)digitalPinToBitMask(pin)
 #define clrPin(pin) PORTD &= ~(byte)digitalPinToBitMask(pin)
 #define pulseH(pin) setPin(pin); clrPin(pin)
@@ -81,8 +82,7 @@ void pulseXXX(int pin, bool active_high) {
 #define clr_data()   clrPin(dataPin)
 */
 
-/*
-// =8/21
+// =8/21/
 #define setBit(bit) asm volatile("sbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bit))
 #define clrBit(bit) asm volatile("cbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bit))
 #define pulseBitH(bit) setBit(bit); clrBit(bit);
@@ -94,7 +94,7 @@ void pulseXXX(int pin, bool active_high) {
 #define enable_off() setBit(enableBit) // -"-
 #define set_data()   setBit(dataBit)
 #define clr_data()   clrBit(dataBit)
-*/
+
 
 void reset595() {
   pulse_clear();  // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
@@ -125,7 +125,7 @@ void configure_interrupts(void) {
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                          // TIMER1 CTC mode ("Clear Timer on Compare")
   TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | TIMER1_PRESCALE_BY_1;   // TIMER1 CTC mode @ 16MHz
   TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
-  OCR1A  = (5000) - 1;   // compare match register: interrupt every 31.25 µs ~> 32 KHz (32 brightness levels, refresh-rate 100Hz)
+  OCR1A  = (5000) - 1;   // compare match register: interrupt every 312.5 µs ~> 3.2 KHz (32 brightness levels, refresh-rate 100Hz)
   TCNT1  = 0;
 /* there is no TIMER2 on the Atmega32uXX
   TCCR2 = 0 | TIMER2_PRESCALE_BY_8; // TIMER2 in normal mode @ 2MHz / 0.5µs period (overflow after 128 µs)
@@ -228,10 +228,10 @@ volatile uint32_t animationTick = 0;
 volatile uint16_t pwm_tick = MAX_BRIGHTNESS;
 volatile uint16_t currentState;
 volatile uint16_t currentMask;
-
+uint16_t t_avg;
 ISR(TIMER1_COMPA_vect) {
+  uint16_t t;
   if (++pwm_tick >= MAX_BRIGHTNESS) {
-    uint16_t t = TCNT1;
     pwm_tick = 0;
     if (brightness == 0) {
       enable_off();
@@ -239,8 +239,8 @@ ISR(TIMER1_COMPA_vect) {
       enable_on();
     }
     pulse_latch(); // transfer last state to outputs
-    t = TCNT1 - t;
-    Serial.println(t);
+    Serial.println(t_avg /16.0);
+    t_avg = 0;
     currentMask = 1 << 15; // initialize mask for next shifting cycle (pwm_ticks 1..16)
 
     if (currentAnim == 0) {
@@ -257,11 +257,11 @@ ISR(TIMER1_COMPA_vect) {
       }
     }
   } else {
+    t = TCNT1;
     if (pwm_tick == brightness) {
       enable_off();
     }
     if (pwm_tick <= 16) {
-      //Serial.println(currentMask, HEX);
       if (currentMask & currentState) {
         set_data();
       } else {
@@ -269,6 +269,7 @@ ISR(TIMER1_COMPA_vect) {
       }
       pulse_clock();
       currentMask >>= 1;
+      t_avg += TCNT1 - t;
     }
   }
 }
