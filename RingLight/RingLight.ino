@@ -163,6 +163,7 @@ void setup() {
 #define CMD_ANIM        4
 #define CMD_DELAY       5
 #define CMD_INVERT      6
+#define CMD_ROTATE      7
 
 int arguments[3];
 
@@ -191,9 +192,26 @@ byte parseCommand() {
       c = CMD_INVERT;
       while ((ch != -1) && (ch != '\n')) ch = Serial.read();
       break;
+    case 'r':
+      c = CMD_ROTATE;
+      arguments[0] = Serial.parseInt();
+      break;
   }
 
   return c;
+}
+
+uint16_t rotateLeft(uint16_t x, byte n) {
+  n &= 0x0F;
+  while (n) {
+    bool one = x & 0x8000;
+    x <<= 1;
+    if (one) {
+      x |= 1;  
+    }
+    n--;
+  }
+  return x;
 }
 
 
@@ -256,6 +274,7 @@ volatile byte currentAnim = animationCount - 1;
 volatile uint16_t brightness = 1;
 volatile uint32_t animationDelay = 5; // in milliseconds
 volatile bool     invert = false;
+volatile byte     rotate = 0;
 volatile uint32_t animationTick = 0;
 volatile uint16_t pwm_tick = MAX_BRIGHTNESS;
 volatile uint16_t currentState;
@@ -282,6 +301,7 @@ ISR(TIMER1_COMPA_vect) {
       if (invert) {
         currentState ^= 0xFFFF;  
       }
+      currentState = rotateLeft(currentState, rotate);
       animationTick = 0;
     }
 
@@ -329,9 +349,9 @@ void loop() {
           Serial.print("no such animation: ");
           Serial.println(a);
         } else {
+          currentAnim = a;
           Serial.print("animation: ");
           Serial.println(a);
-          currentAnim = a;
         }
         break;
       case CMD_DELAY:
@@ -339,14 +359,20 @@ void loop() {
         if (a < 0) {
           a = 0;
         }
+        animationDelay = a;
         Serial.print("delay: ");
         Serial.println(a);
-        animationDelay = a;
         break;
       case CMD_INVERT:
         invert = !invert;
         Serial.print("invert: ");
         Serial.println(invert ? "on" : "off");
+        break;
+      case CMD_ROTATE:
+        a = arguments[0];
+        rotate = a & 0x0F;
+        Serial.print("rotate: ");
+        Serial.println(rotate);
         break;
 
       default:
