@@ -165,6 +165,7 @@ void setup() {
 #define CMD_INVERT      6
 #define CMD_ROTATE      7
 #define CMD_MIRROR      8
+#define CMD_FLIP        9
 
 int arguments[3];
 
@@ -200,6 +201,10 @@ byte parseCommand() {
       break;
     case 'm':
       c = CMD_MIRROR;
+      while ((ch != -1) && (ch != '\n')) ch = Serial.read();
+      break;
+    case 'f':
+      c = CMD_FLIP;
       while ((ch != -1) && (ch != '\n')) ch = Serial.read();
       break;
   }
@@ -292,7 +297,8 @@ volatile uint16_t brightness = 1;
 volatile uint32_t animationDelay = 5; // in milliseconds
 volatile bool     invert = false;
 volatile byte     rotate = 0;
-volatile bool     mirror = false;
+volatile bool     mirror = false; // mirror at vertical axis (does not depend on rotate)
+volatile bool     flip = false;   // mirror at 0-axis (depends on rotate)
 volatile uint32_t animationTick = 0;
 volatile uint16_t pwm_tick = MAX_BRIGHTNESS;
 volatile uint16_t currentState;
@@ -319,8 +325,11 @@ ISR(TIMER1_COMPA_vect) {
       if (invert) {
         currentState ^= 0xFFFF;  
       }
+      if (flip) {
+        currentState = rotateLeft(mirrorBits(currentState), 1); // add. rotL s.t. axis goes through an LED (rather than between two LEDs)
+      }
       currentState = rotateLeft(currentState, rotate);
-      if (mirror) { // additional rotateLeft 1 st axis is vertical
+      if (mirror) { // additional rotateLeft 1: see above
         currentState = rotateLeft(mirrorBits(currentState), 1);
       }
       animationTick = 0;
@@ -393,6 +402,11 @@ void loop() {
         mirror = !mirror;
         Serial.print("mirror: ");
         Serial.println(mirror ? "on" : "off");
+        break;
+      case CMD_FLIP:
+        flip = !flip;
+        Serial.print("flip: ");
+        Serial.println(flip ? "on" : "off");
         break;
       case CMD_ROTATE:
         a = arguments[0];
