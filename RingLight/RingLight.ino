@@ -82,7 +82,7 @@ void pulseXXX(int pin, bool active_high) {
 #define clr_data()   clrPin(dataPin)
 */
 
-// =8/21/
+// =8/21/53
 #define setBit(bit) asm volatile("sbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bit))
 #define clrBit(bit) asm volatile("cbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bit))
 #define pulseBitH(bit) setBit(bit); clrBit(bit);
@@ -213,11 +213,21 @@ uint16_t anim_wanderingDot1_cc(uint16_t last, uint32_t ms) {
   return (last == 0) ? 1 : last;
 }
 
+uint16_t anim_allOff(uint16_t last, uint32_t ms) {
+  return 0;
+}
+
+uint16_t anim_allOn(uint16_t last, uint32_t ms) {
+  return 0xFFFF;
+}
+
 typedef uint16_t (*animFuncPtr)(uint16_t, uint32_t); 
 volatile animFuncPtr animations[] = {
   anim_ring_cc,
   anim_ring_cw,
   anim_wanderingDot1_cc,
+  anim_allOff,
+  anim_allOn,
 };
 volatile uint16_t animStates[sizeof(animations)];
 
