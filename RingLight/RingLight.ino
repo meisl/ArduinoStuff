@@ -169,13 +169,14 @@ void setup() {
 int arguments[3];
 
 byte parseCommand() {
+  static byte last = CMD_NONE;
   byte c = CMD_UNKNOWN;
   int ch = Serial.read();
   switch (ch) {
     case -1:   
       return CMD_NONE;
     case '\n':
-      return CMD_EMPTY;
+      return last;
     case 'b':
       c = CMD_BRIGHTNESS;
       ch = Serial.peek();
@@ -202,7 +203,7 @@ byte parseCommand() {
       while ((ch != -1) && (ch != '\n')) ch = Serial.read();
       break;
   }
-
+  last = c;
   return c;
 }
 
