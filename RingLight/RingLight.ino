@@ -272,6 +272,10 @@ uint16_t anim_quarters(uint16_t last, uint32_t ms) {
   return last ? rotateLeft(last, 4) : 0x000F;
 }
 
+uint16_t anim_binaryUpCounter(uint16_t last, uint32_t ms) {
+  return last + 1;
+}
+
 typedef uint16_t (*animFuncPtr)(uint16_t, uint32_t); 
 volatile animFuncPtr animations[] = {
   anim_allOff,
@@ -279,6 +283,7 @@ volatile animFuncPtr animations[] = {
   anim_wanderingDot1_cc,
   anim_fountain,
   anim_quarters,
+  anim_binaryUpCounter,
 };
 #define animationCount (sizeof(animations)/sizeof(animFuncPtr))
 volatile uint16_t animStates[animationCount];
