@@ -265,16 +265,7 @@ uint16_t anim_fountain(uint16_t last, uint32_t ms) {
   if ((last & 0x0E) == 0) {
     last |= 1;
   }
-  byte maskLo = 0x02;
-  uint16_t maskHi = 0x8000;
-  while (maskLo) {
-    if (last & maskLo) {
-      last |= maskHi;  
-    }
-    maskLo <<= 1;
-    maskHi >>= 1;  
-  }
-  return last;
+  return last | (mirrorBits(last) << 1);
 }
 
 uint16_t anim_quarters(uint16_t last, uint32_t ms) {
