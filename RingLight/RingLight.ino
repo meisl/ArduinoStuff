@@ -162,6 +162,7 @@ void setup() {
 #define CMD_BRIGHTNESS  3
 #define CMD_ANIM        4
 #define CMD_DELAY       5
+#define CMD_INVERT      6
 
 int arguments[3];
 
@@ -185,6 +186,10 @@ byte parseCommand() {
     case 'a':
       c = CMD_ANIM;
       arguments[0] = Serial.parseInt();
+      break;
+    case 'i':
+      c = CMD_INVERT;
+      while ((ch != -1) && (ch != '\n')) ch = Serial.read();
       break;
   }
 
@@ -217,14 +222,10 @@ uint16_t anim_allOff(uint16_t last, uint32_t ms) {
   return 0;
 }
 
-uint16_t anim_allOn(uint16_t last, uint32_t ms) {
-  return 0xFFFF;
-}
 
 typedef uint16_t (*animFuncPtr)(uint16_t, uint32_t); 
 volatile animFuncPtr animations[] = {
   anim_allOff,
-  anim_allOn,
   anim_ring_cc,
   anim_ring_cw,
   anim_wanderingDot1_cc,
@@ -235,6 +236,7 @@ volatile uint16_t animStates[animationCount];
 volatile byte currentAnim = animationCount - 1;
 volatile uint16_t brightness = 1;
 volatile uint32_t animationDelay = 5; // in milliseconds
+volatile bool     invert = false;
 volatile uint32_t animationTick = 0;
 volatile uint16_t pwm_tick = MAX_BRIGHTNESS;
 volatile uint16_t currentState;
@@ -250,7 +252,7 @@ ISR(TIMER1_COMPA_vect) {
       enable_on();
     }
     pulse_latch(); // transfer last state to outputs
-    Serial.println(t_avg /16.0);
+    //Serial.println(t_avg /16.0);
     t_avg = 0;
     currentMask = 1 << 15; // initialize mask for next shifting cycle (pwm_ticks 1..16)
 
@@ -258,6 +260,9 @@ ISR(TIMER1_COMPA_vect) {
       uint16_t oldState = animStates[currentAnim];
       currentState = animations[currentAnim](oldState, 0);
       animStates[currentAnim] = currentState;
+      if (invert) {
+        currentState ^= 0xFFFF;  
+      }
       animationTick = 0;
     }
 
@@ -318,6 +323,11 @@ void loop() {
         Serial.print("delay: ");
         Serial.println(a);
         animationDelay = a;
+        break;
+      case CMD_INVERT:
+        invert = !invert;
+        Serial.print("invert: ");
+        Serial.println(invert ? "on" : "off");
         break;
 
       default:
