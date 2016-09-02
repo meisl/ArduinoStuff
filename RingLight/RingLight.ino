@@ -164,6 +164,7 @@ void setup() {
 #define CMD_DELAY       5
 #define CMD_INVERT      6
 #define CMD_ROTATE      7
+#define CMD_MIRROR      8
 
 int arguments[3];
 
@@ -196,6 +197,10 @@ byte parseCommand() {
       c = CMD_ROTATE;
       arguments[0] = Serial.parseInt();
       break;
+    case 'm':
+      c = CMD_MIRROR;
+      while ((ch != -1) && (ch != '\n')) ch = Serial.read();
+      break;
   }
 
   return c;
@@ -218,23 +223,28 @@ uint16_t rotateRight(uint16_t x, byte n) {
   return rotateLeft(x, (16 - (n & 0xF)) & 0xF);
 }
 
+uint16_t mirrorBits(uint16_t x) {
+  uint16_t result = 0;
+  uint16_t mask = 0x8000;
+  while (x) {
+    if (x & 1) {
+      result |= mask;  
+    }
+    x >>= 1;
+    mask >>= 1;
+  }
+  return result;
+}
+
 uint16_t anim_allOff(uint16_t last, uint32_t ms) {
   return 0;
 }
 
-uint16_t anim_ring_cw(uint16_t last, uint32_t ms) {
+uint16_t anim_ring(uint16_t last, uint32_t ms) {
   if ((last == 0) || (~last == 0)) {
     return 1;
   } else {
     return (last << 1) | 1;
-  }
-}
-
-uint16_t anim_ring_cc(uint16_t last, uint32_t ms) {
-  if ((last == 0) || (~last == 0)) {
-    return 1;
-  } else {
-    return (last >> 1) | (1 << 15) | 1;
   }
 }
 
@@ -268,8 +278,7 @@ uint16_t anim_quarters(uint16_t last, uint32_t ms) {
 typedef uint16_t (*animFuncPtr)(uint16_t, uint32_t); 
 volatile animFuncPtr animations[] = {
   anim_allOff,
-  anim_ring_cc,
-  anim_ring_cw,
+  anim_ring,
   anim_wanderingDot1_cc,
   anim_fountain,
   anim_quarters,
@@ -282,6 +291,7 @@ volatile uint16_t brightness = 1;
 volatile uint32_t animationDelay = 5; // in milliseconds
 volatile bool     invert = false;
 volatile byte     rotate = 0;
+volatile bool     mirror = false;
 volatile uint32_t animationTick = 0;
 volatile uint16_t pwm_tick = MAX_BRIGHTNESS;
 volatile uint16_t currentState;
@@ -309,6 +319,9 @@ ISR(TIMER1_COMPA_vect) {
         currentState ^= 0xFFFF;  
       }
       currentState = rotateLeft(currentState, rotate);
+      if (mirror) { // additional rotateLeft 1 st axis is vertical
+        currentState = rotateLeft(mirrorBits(currentState), 1);
+      }
       animationTick = 0;
     }
 
@@ -374,6 +387,11 @@ void loop() {
         invert = !invert;
         Serial.print("invert: ");
         Serial.println(invert ? "on" : "off");
+        break;
+      case CMD_MIRROR:
+        mirror = !mirror;
+        Serial.print("mirror: ");
+        Serial.println(mirror ? "on" : "off");
         break;
       case CMD_ROTATE:
         a = arguments[0];
