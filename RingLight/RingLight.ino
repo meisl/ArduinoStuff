@@ -207,6 +207,8 @@ byte parseCommand() {
     case 't':
       c = CMD_TIME;
       break;
+    default:
+      arguments[0] = ch;
   }
   // consume rest of line (while ignoring it):
   while ((ch != -1) && (ch != '\n')) ch = Serial.read();
@@ -459,8 +461,9 @@ void loop() {
         break;
 
       default:
-        Serial.print("unknown command ");
-        Serial.println(cmd);
+        Serial.print("unknown command \"");
+        Serial.print((char)arguments[0]);
+        Serial.println("\"");
     }
   } else {
     serialConn = false;  
