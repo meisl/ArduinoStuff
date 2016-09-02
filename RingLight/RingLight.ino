@@ -197,6 +197,10 @@ byte parseCommand() {
 }
 
 
+uint16_t anim_allOff(uint16_t last, uint32_t ms) {
+  return 0;
+}
+
 uint16_t anim_ring_cw(uint16_t last, uint32_t ms) {
   if ((last == 0) || (~last == 0)) {
     return 1;
@@ -218,8 +222,22 @@ uint16_t anim_wanderingDot1_cc(uint16_t last, uint32_t ms) {
   return (last == 0) ? 1 : last;
 }
 
-uint16_t anim_allOff(uint16_t last, uint32_t ms) {
-  return 0;
+uint16_t anim_fountain(uint16_t last, uint32_t ms) {
+  last <<= 1;
+  last &= 0x01FF;
+  if ((last & 0x0E) == 0) {
+    last |= 1;
+  }
+  byte maskLo = 0x02;
+  uint16_t maskHi = 0x8000;
+  while (maskLo) {
+    if (last & maskLo) {
+      last |= maskHi;  
+    }
+    maskLo <<= 1;
+    maskHi >>= 1;  
+  }
+  return last;
 }
 
 
@@ -229,6 +247,7 @@ volatile animFuncPtr animations[] = {
   anim_ring_cc,
   anim_ring_cw,
   anim_wanderingDot1_cc,
+  anim_fountain,
 };
 #define animationCount (sizeof(animations)/sizeof(animFuncPtr))
 volatile uint16_t animStates[animationCount];
