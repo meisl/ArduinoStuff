@@ -166,6 +166,7 @@ void setup() {
 #define CMD_ROTATE      7
 #define CMD_MIRROR      8
 #define CMD_FLIP        9
+#define CMD_TIME       10
 
 int arguments[3];
 
@@ -205,6 +206,10 @@ byte parseCommand() {
       break;
     case 'f':
       c = CMD_FLIP;
+      while ((ch != -1) && (ch != '\n')) ch = Serial.read();
+      break;
+    case 't':
+      c = CMD_TIME;
       while ((ch != -1) && (ch != '\n')) ch = Serial.read();
       break;
   }
@@ -254,7 +259,7 @@ uint16_t anim_ring(uint16_t last, uint32_t ms) {
   }
 }
 
-uint16_t anim_wanderingDot1_cc(uint16_t last, uint32_t ms) {
+uint16_t anim_wanderingDot1(uint16_t last, uint32_t ms) {
   last <<= 1;
   return (last == 0) ? 1 : last;
 }
@@ -276,14 +281,34 @@ uint16_t anim_binaryUpCounter(uint16_t last, uint32_t ms) {
   return last + 1;
 }
 
+uint16_t anim_clock(uint16_t last, uint32_t ms) {
+  uint16_t result = 0;
+  uint16_t secondsEighths = ms / 125;
+  uint16_t minutes16th = ms / 3750;
+  if ((ms / 500) & 1) { // have seconds indicator blink at 1Hz
+    result |= 1 << (minutes16th & 0x000F);  
+  }
+  uint16_t hours16th = minutes16th / 60;
+  if (secondsEighths & 0xF) {
+    result ^= 1 << (hours16th & 0x000F); // minutes indicator
+  }
+  /*
+  Serial.print(ms);
+  Serial.print("\t");
+  Serial.println(minutes16th);
+  */
+  return rotateLeft(mirrorBits(result), 1);
+}
+
 typedef uint16_t (*animFuncPtr)(uint16_t, uint32_t); 
 volatile animFuncPtr animations[] = {
   anim_allOff,
   anim_ring,
-  anim_wanderingDot1_cc,
+  anim_wanderingDot1,
   anim_fountain,
   anim_quarters,
   anim_binaryUpCounter,
+  anim_clock,
 };
 #define animationCount (sizeof(animations)/sizeof(animFuncPtr))
 volatile uint16_t animStates[animationCount];
@@ -299,9 +324,22 @@ volatile uint32_t animationTick = 0;
 volatile uint16_t pwm_tick = MAX_BRIGHTNESS;
 volatile uint16_t currentState;
 volatile uint16_t currentMask;
+byte millisQuarters = 0;
+byte ticks = 0;
+uint32_t milliseconds = 0;
 uint16_t t_avg;
 ISR(TIMER1_COMPA_vect) {
   uint16_t t;
+  if (++ticks == 4) {
+    ticks = 0;
+    if (++millisQuarters == 4) {
+      millisQuarters = 0;
+      milliseconds += 2;  
+    } else {
+      milliseconds += 1;
+    }
+  }
+  
   if (++pwm_tick >= MAX_BRIGHTNESS) {
     pwm_tick = 0;
     if (brightness == 0) {
@@ -316,7 +354,7 @@ ISR(TIMER1_COMPA_vect) {
 
     if (++animationTick > animationDelay) { // Note: it's NOT >= here!
       uint16_t oldState = animStates[currentAnim];
-      currentState = animations[currentAnim](oldState, 0);
+      currentState = animations[currentAnim](oldState, milliseconds);
       animStates[currentAnim] = currentState;
       if (invert) {
         currentState ^= 0xFFFF;  
@@ -359,6 +397,7 @@ void loop() {
     }
     byte cmd = parseCommand();
     int a;
+    uint32_t t1, t2;
     switch (cmd) {
       case CMD_NONE:
       case CMD_EMPTY:
@@ -403,6 +442,17 @@ void loop() {
         flip = !flip;
         Serial.print("flip: ");
         Serial.println(flip ? "on" : "off");
+        break;
+      case CMD_TIME:
+        t1 = millis();
+        t2 = milliseconds;
+        Serial.print("time: ");
+        Serial.print(t1);
+        Serial.println(" ms");
+        Serial.print("      ");
+        Serial.println(t2);
+        Serial.print("      ");
+        Serial.println(t2 - t1);
         break;
       case CMD_ROTATE:
         a = arguments[0];
