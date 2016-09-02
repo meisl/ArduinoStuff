@@ -208,7 +208,13 @@ byte parseCommand() {
       c = CMD_TIME;
       break;
     default:
-      arguments[0] = ch;
+      byte* firstByteOfArgs = (byte*)(&arguments);
+      byte* lastByteOfArgs = firstByteOfArgs + sizeof(arguments) - 1;
+      *firstByteOfArgs = (byte)ch;
+      byte n = Serial.readBytesUntil('\n', firstByteOfArgs + 1, sizeof(arguments) - 2);
+      byte* terminationByte = firstByteOfArgs + 1 + n;
+      *terminationByte = 0;
+      ch = 0;
   }
   // consume rest of line (while ignoring it):
   while ((ch != -1) && (ch != '\n')) ch = Serial.read();
@@ -451,7 +457,7 @@ void loop() {
         Serial.print("      ");
         Serial.println(t2);
         Serial.print("      ");
-        Serial.println(t2 - t1);
+        Serial.println((int32_t)(t2 - t1));
         break;
       case CMD_ROTATE:
         a = arguments[0];
@@ -462,8 +468,8 @@ void loop() {
 
       default:
         Serial.print("unknown command \"");
-        Serial.print((char)arguments[0]);
-        Serial.println("\"");
+        Serial.print((char*)(&arguments));
+        Serial.println("\"...");
     }
   } else {
     serialConn = false;  
