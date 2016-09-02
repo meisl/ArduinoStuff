@@ -181,7 +181,6 @@ byte parseCommand() {
       return last;
     case 'b':
       c = CMD_BRIGHTNESS;
-      ch = Serial.peek();
       arguments[0] = Serial.parseInt();
       break;
     case 'd':
@@ -194,7 +193,6 @@ byte parseCommand() {
       break;
     case 'i':
       c = CMD_INVERT;
-      while ((ch != -1) && (ch != '\n')) ch = Serial.read();
       break;
     case 'r':
       c = CMD_ROTATE;
@@ -202,17 +200,16 @@ byte parseCommand() {
       break;
     case 'm':
       c = CMD_MIRROR;
-      while ((ch != -1) && (ch != '\n')) ch = Serial.read();
       break;
     case 'f':
       c = CMD_FLIP;
-      while ((ch != -1) && (ch != '\n')) ch = Serial.read();
       break;
     case 't':
       c = CMD_TIME;
-      while ((ch != -1) && (ch != '\n')) ch = Serial.read();
       break;
   }
+  // consume rest of line (while ignoring it):
+  while ((ch != -1) && (ch != '\n')) ch = Serial.read();
   last = c;
   return c;
 }
