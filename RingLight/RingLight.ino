@@ -169,56 +169,173 @@ void setup() {
 #define CMD_TIME       10
 
 int arguments[3];
+byte* firstByteOfArgs = (byte*)(&arguments);
+char parsedChars[10];
+byte parsedCharCount;
+/*
+bool parseInt(int* target) {
+  int ch = Serial.peek();
+  if ((ch == -1) || (ch == '\n')) {
+    return false;  
+  }
+}
+*/
+
+
+
+#define STATE_LINE_START    0
+#define STATE_LINE_END      1
+#define STATE_OPTIONAL_ARG  2
+#define STATE_NEXT_DIGIT    3
+#define STATE_SKIP_TIL_EOL  4
+#define STATE_ERROR         5
 
 byte parseCommand() {
   static byte last = CMD_NONE;
-  byte c = CMD_UNKNOWN;
-  int ch = Serial.read();
-  switch (ch) {
-    case -1:   
-      return CMD_NONE;
-    case '\n':
-      return last;
-    case 'b':
-      c = CMD_BRIGHTNESS;
-      arguments[0] = Serial.parseInt();
-      break;
-    case 'd':
-      c = CMD_DELAY;
-      arguments[0] = Serial.parseInt();
-      break;
-    case 'a':
-      c = CMD_ANIM;
-      arguments[0] = Serial.parseInt();
-      break;
-    case 'i':
-      c = CMD_INVERT;
-      break;
-    case 'r':
-      c = CMD_ROTATE;
-      arguments[0] = Serial.parseInt();
-      break;
-    case 'm':
-      c = CMD_MIRROR;
-      break;
-    case 'f':
-      c = CMD_FLIP;
-      break;
-    case 't':
-      c = CMD_TIME;
-      break;
-    default:
-      byte* firstByteOfArgs = (byte*)(&arguments);
-      byte* lastByteOfArgs = firstByteOfArgs + sizeof(arguments) - 1;
-      *firstByteOfArgs = (byte)ch;
-      byte n = Serial.readBytesUntil('\n', firstByteOfArgs + 1, sizeof(arguments) - 2);
-      byte* terminationByte = firstByteOfArgs + 1 + n;
-      *terminationByte = 0;
-      ch = 0;
-  }
+  static byte c = CMD_UNKNOWN;
+  static byte state = STATE_LINE_START;
+  static byte argCount = 0;
+  static int  temp;
+  int ch;
+  do {
+    ch = Serial.read();
+    if (ch == -1) {     // timeout, stay in same state
+      return CMD_NONE;  // and report nothing
+    }
+    if (state == STATE_LINE_START) {
+      parsedCharCount = 0;
+      parsedChars[0] = 0;  
+    }
+    if (ch != '\n') {
+      parsedCharCount++;
+      if (parsedCharCount < sizeof(parsedChars)) {
+        parsedChars[parsedCharCount - 1] = (byte)ch;
+        parsedChars[parsedCharCount] = 0;
+      }
+    }
+    switch (state) {
+      case STATE_SKIP_TIL_EOL:
+        if (ch == '\n') {
+          state = STATE_LINE_END;  
+        }
+        break;
+      case STATE_NEXT_DIGIT:
+        switch (ch) {
+          case '\n':
+            arguments[argCount] = temp;
+            state = STATE_LINE_END;  
+            break;
+          case '0':
+          case '1':
+          case '2':
+          case '3':
+          case '4':
+          case '5':
+          case '6':
+          case '7':
+          case '8':
+          case '9':
+            temp = temp * 10 + (ch - '0');
+            break;
+          default:
+            state = STATE_SKIP_TIL_EOL;
+            arguments[argCount] = temp;
+        }
+        break;
+      case STATE_OPTIONAL_ARG:
+        switch (ch) {
+          case '\n':
+            state = STATE_LINE_END;
+            break;
+          case ' ':   // ignore whitespace
+          case '\t':
+            break;
+          case '+':
+            // TODO: store arg
+            state = STATE_SKIP_TIL_EOL;
+            break;
+          case '-':
+            // TODO: store arg
+            state = STATE_SKIP_TIL_EOL;
+            break;
+          case '0':
+          case '1':
+          case '2':
+          case '3':
+          case '4':
+          case '5':
+          case '6':
+          case '7':
+          case '8':
+          case '9':
+            argCount++;
+            temp = ch - '0';
+            state = STATE_NEXT_DIGIT;
+            break;
+          default:
+            state = STATE_ERROR;
+        }
+        break;
+      case STATE_LINE_START:
+        if (ch == '\n') {
+          c = last;
+          state = STATE_LINE_END;
+        } else {
+          argCount = 0;
+          switch (ch) {
+            case 'b':
+              c = CMD_BRIGHTNESS;
+              state = STATE_OPTIONAL_ARG;
+              break;
+            case 'd':
+              c = CMD_DELAY;
+              state = STATE_OPTIONAL_ARG;
+              break;
+            case 'a':
+              c = CMD_ANIM;
+              state = STATE_OPTIONAL_ARG;
+              break;
+            case 'r':
+              c = CMD_ROTATE;
+              state = STATE_OPTIONAL_ARG;
+              break;
+            case 'i':
+              c = CMD_INVERT;
+              state = STATE_SKIP_TIL_EOL;
+              break;
+            case 'm':
+              c = CMD_MIRROR;
+              state = STATE_SKIP_TIL_EOL;
+              break;
+            case 'f':
+              c = CMD_FLIP;
+              state = STATE_SKIP_TIL_EOL;
+              break;
+            case 't':
+              c = CMD_TIME;
+              state = STATE_SKIP_TIL_EOL;
+              break;
+            default:
+              state = STATE_ERROR;
+          }
+        }
+        break;  // STATE_LINE_START
+    } // switch(state)
+    if (state == STATE_ERROR) {
+      c = CMD_UNKNOWN;
+      state = STATE_SKIP_TIL_EOL;
+    }
+  } while (state != STATE_LINE_END);
+
+  /*
   // consume rest of line (while ignoring it):
-  while ((ch != -1) && (ch != '\n')) ch = Serial.read();
-  last = c;
+  while ( (ch != -1) && (ch != '\n')) ch = Serial.read();
+  */
+  if (c != CMD_UNKNOWN) {
+    last = c;
+    arguments[0] = argCount;
+  }
+  state = STATE_LINE_START;
   return c;
 }
 
@@ -401,37 +518,45 @@ void loop() {
       serialConn = true;
     }
     byte cmd = parseCommand();
-    int a;
+    int a, n;
     uint32_t t1, t2;
     switch (cmd) {
       case CMD_NONE:
       case CMD_EMPTY:
         break;
       case CMD_BRIGHTNESS:
+        n = arguments[0];
+        if (n > 0) {
+          a = constrain(arguments[1], 0, MAX_BRIGHTNESS);
+          brightness = a;
+        }
         Serial.print("brightness: ");
-        a = constrain(arguments[0], 0, MAX_BRIGHTNESS);
-        Serial.println(a);
-        brightness = a;
+        Serial.println(brightness);
         break;
       case CMD_ANIM:
-        a = arguments[0];
-        if ((a < 0) || (a >= animationCount)) {
+        if (arguments[0]) {
+          a = arguments[1];  
+        } else {
+          a = currentAnim;
+        }
+        if ((a < 0) || ((uint16_t)a >= animationCount)) {
           Serial.print("no such animation: ");
           Serial.println(a);
         } else {
           currentAnim = a;
-          Serial.print("animation: ");
-          Serial.println(a);
         }
+        Serial.print("animation: ");
+        Serial.println(currentAnim);
         break;
       case CMD_DELAY:
-        a = arguments[0];
-        if (a < 0) {
-          a = 0;
+        if (arguments[0] > 0) {
+          a = arguments[1];
+        } else {
+          a = animationDelay;
         }
         animationDelay = a;
         Serial.print("delay: ");
-        Serial.println(a);
+        Serial.println(animationDelay);
         break;
       case CMD_INVERT:
         invert = !invert;
@@ -460,15 +585,19 @@ void loop() {
         Serial.println((int32_t)(t2 - t1));
         break;
       case CMD_ROTATE:
-        a = arguments[0];
+        if (arguments[0] > 0) {
+          a = arguments[1];
+        } else {
+          a = rotate;
+        }
         rotate = a & 0x0F;
         Serial.print("rotate: ");
         Serial.println(rotate);
         break;
 
       default:
-        Serial.print("unknown command \"");
-        Serial.print((char*)(&arguments));
+        Serial.print("unknown/invalid command \"");
+        Serial.print(parsedChars);
         Serial.println("\"...");
     }
   } else {
