@@ -172,16 +172,6 @@ int arguments[3];
 byte* firstByteOfArgs = (byte*)(&arguments);
 char parsedChars[10];
 byte parsedCharCount;
-/*
-bool parseInt(int* target) {
-  int ch = Serial.peek();
-  if ((ch == -1) || (ch == '\n')) {
-    return false;  
-  }
-}
-*/
-
-
 
 #define STATE_LINE_START    0
 #define STATE_LINE_END      1
@@ -381,6 +371,16 @@ uint16_t anim_ring(uint16_t last, uint32_t ms) {
   }
 }
 
+uint16_t anim_wanderingRing(uint16_t last, uint32_t ms) {
+  static byte rotation = 0; // nicer effects if we were to change the global var rotate...
+  if (~last == 0) {
+    rotation = (rotation + 1) & 0xF;  
+  }
+  last = anim_ring(rotateRight(last, rotation), ms);
+  last = rotateLeft(last, rotation);
+  return last;
+}
+
 uint16_t anim_wanderingDot1(uint16_t last, uint32_t ms) {
   last <<= 1;
   return (last == 0) ? 1 : last;
@@ -426,6 +426,7 @@ typedef uint16_t (*animFuncPtr)(uint16_t, uint32_t);
 volatile animFuncPtr animations[] = {
   anim_allOff,
   anim_ring,
+  anim_wanderingRing,
   anim_wanderingDot1,
   anim_fountain,
   anim_quarters,
