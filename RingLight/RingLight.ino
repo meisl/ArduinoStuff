@@ -158,6 +158,12 @@ void setup() {
 }
 
 
+enum { // node type
+  TYPE_CMD = 0,
+  TYPE_INT = 1,
+  TYPE_OP  = 2
+};
+
 #define CMD_NONE        0
 #define CMD_UNKNOWN     1
 #define CMD_EMPTY       2
@@ -170,8 +176,22 @@ void setup() {
 #define CMD_FLIP        9
 #define CMD_TIME       10
 
-int arguments[3];
-byte* firstByteOfArgs = (byte*)(&arguments);
+
+struct node_t {
+  byte type;
+  union {
+    int i;
+    char c;
+  } value;
+  byte childCount;
+  struct nodeList_t *children;
+};
+
+struct nodeList_t {
+  node_t node;
+  struct nodeList_t *next;  
+};
+
 char parsedChars[10];
 byte parsedCharCount;
 
@@ -182,17 +202,17 @@ byte parsedCharCount;
 #define STATE_SKIP_TIL_EOL  4
 #define STATE_ERROR         5
 
-byte parseCommand() {
-  static byte last = CMD_NONE;
-  static byte c = CMD_UNKNOWN;
+struct node_t *parseCommand() {
   static byte state = STATE_LINE_START;
-  static byte argCount = 0;
-  static int  temp;
+  static nodeList_t children = { { TYPE_INT, 0, 0, NULL }, NULL };
+  static node_t ast = { TYPE_CMD, CMD_UNKNOWN, 0, &children };
+  static node_t *child = &(children.node);
+  static int temp = 0;
   int ch;
   do {
     ch = Serial.read();
     if (ch == -1) {     // timeout, stay in same state
-      return CMD_NONE;  // and report nothing
+      return NULL;      // and report nothing
     }
     if (state == STATE_LINE_START) {
       parsedCharCount = 0;
@@ -213,10 +233,6 @@ byte parseCommand() {
         break;
       case STATE_NEXT_DIGIT:
         switch (ch) {
-          case '\n':
-            arguments[argCount] = temp;
-            state = STATE_LINE_END;  
-            break;
           case '0':
           case '1':
           case '2':
@@ -227,11 +243,14 @@ byte parseCommand() {
           case '7':
           case '8':
           case '9':
-            temp = temp * 10 + (ch - '0');
+            temp *= 10;
+            temp += ch - '0';
             break;
           default:
-            state = STATE_SKIP_TIL_EOL;
-            arguments[argCount] = temp;
+            ast.childCount++;
+            child->type = TYPE_INT;
+            child->value.i = temp;
+            state = (ch = '\n') ? STATE_LINE_END : STATE_SKIP_TIL_EOL;
         }
         break;
       case STATE_OPTIONAL_ARG:
@@ -260,7 +279,6 @@ byte parseCommand() {
           case '7':
           case '8':
           case '9':
-            argCount++;
             temp = ch - '0';
             state = STATE_NEXT_DIGIT;
             break;
@@ -270,41 +288,41 @@ byte parseCommand() {
         break;
       case STATE_LINE_START:
         if (ch == '\n') {
-          c = last;
           state = STATE_LINE_END;
         } else {
-          argCount = 0;
+          ast.type = TYPE_CMD;
+          ast.childCount = 0;
           switch (ch) {
             case 'b':
-              c = CMD_BRIGHTNESS;
+              ast.value.c = CMD_BRIGHTNESS;
               state = STATE_OPTIONAL_ARG;
               break;
             case 'd':
-              c = CMD_DELAY;
+              ast.value.c = CMD_DELAY;
               state = STATE_OPTIONAL_ARG;
               break;
             case 'a':
-              c = CMD_ANIM;
+              ast.value.c = CMD_ANIM;
               state = STATE_OPTIONAL_ARG;
               break;
             case 'r':
-              c = CMD_ROTATE;
+              ast.value.c = CMD_ROTATE;
               state = STATE_OPTIONAL_ARG;
               break;
             case 'i':
-              c = CMD_INVERT;
+              ast.value.c = CMD_INVERT;
               state = STATE_SKIP_TIL_EOL;
               break;
             case 'm':
-              c = CMD_MIRROR;
+              ast.value.c = CMD_MIRROR;
               state = STATE_SKIP_TIL_EOL;
               break;
             case 'f':
-              c = CMD_FLIP;
+              ast.value.c = CMD_FLIP;
               state = STATE_SKIP_TIL_EOL;
               break;
             case 't':
-              c = CMD_TIME;
+              ast.value.c = CMD_TIME;
               state = STATE_SKIP_TIL_EOL;
               break;
             default:
@@ -314,21 +332,12 @@ byte parseCommand() {
         break;  // STATE_LINE_START
     } // switch(state)
     if (state == STATE_ERROR) {
-      c = CMD_UNKNOWN;
+      ast.value.c = CMD_UNKNOWN;
       state = STATE_SKIP_TIL_EOL;
     }
   } while (state != STATE_LINE_END);
-
-  /*
-  // consume rest of line (while ignoring it):
-  while ( (ch != -1) && (ch != '\n')) ch = Serial.read();
-  */
-  if (c != CMD_UNKNOWN) {
-    last = c;
-    arguments[0] = argCount;
-  }
   state = STATE_LINE_START;
-  return c;
+  return &ast;
 }
 
 uint16_t rotateLeft(uint16_t x, byte n) {
@@ -519,89 +528,73 @@ void loop() {
       Serial.println("Hi there!");
       serialConn = true;
     }
-    byte cmd = parseCommand();
-    int a, n;
-    uint32_t t1, t2;
-    switch (cmd) {
-      case CMD_NONE:
-      case CMD_EMPTY:
-        break;
-      case CMD_BRIGHTNESS:
-        n = arguments[0];
-        if (n > 0) {
-          a = constrain(arguments[1], 0, MAX_BRIGHTNESS);
-          brightness = a;
-          analogWrite(enablePin, brightness);
-        }
-        Serial.print("brightness: ");
-        Serial.println(brightness);
-        break;
-      case CMD_ANIM:
-        if (arguments[0]) {
-          a = arguments[1];  
-        } else {
-          a = currentAnim;
-        }
-        if ((a < 0) || ((uint16_t)a >= animationCount)) {
-          Serial.print("no such animation: ");
-          Serial.println(a);
-        } else {
-          currentAnim = a;
-        }
-        Serial.print("animation: ");
-        Serial.println(currentAnim);
-        break;
-      case CMD_DELAY:
-        if (arguments[0] > 0) {
-          a = arguments[1];
-        } else {
-          a = animationDelay;
-        }
-        animationDelay = a;
-        Serial.print("delay: ");
-        Serial.println(animationDelay);
-        break;
-      case CMD_INVERT:
-        invert = !invert;
-        Serial.print("invert: ");
-        Serial.println(invert ? "on" : "off");
-        break;
-      case CMD_MIRROR:
-        mirror = !mirror;
-        Serial.print("mirror: ");
-        Serial.println(mirror ? "on" : "off");
-        break;
-      case CMD_FLIP:
-        flip = !flip;
-        Serial.print("flip: ");
-        Serial.println(flip ? "on" : "off");
-        break;
-      case CMD_TIME:
-        t1 = millis();
-        t2 = milliseconds;
-        Serial.print("time: ");
-        Serial.print(t1);
-        Serial.println(" ms");
-        Serial.print("      ");
-        Serial.println(t2);
-        Serial.print("      ");
-        Serial.println((int32_t)(t2 - t1));
-        break;
-      case CMD_ROTATE:
-        if (arguments[0] > 0) {
-          a = arguments[1];
-        } else {
-          a = rotate;
-        }
-        rotate = a & 0x0F;
-        Serial.print("rotate: ");
-        Serial.println(rotate);
-        break;
-
-      default:
-        Serial.print("unknown/invalid command \"");
-        Serial.print(parsedChars);
-        Serial.println("\"...");
+    node_t *ast = parseCommand();
+    if (ast != NULL) {
+      int n = ast->childCount;
+      node_t *a0 = (n > 0) ? &(ast->children->node) : NULL;
+      uint32_t t1, t2;
+      switch (ast->value.c) {
+        case CMD_BRIGHTNESS:
+          if (a0) {
+            brightness = constrain(a0->value.i, 0, MAX_BRIGHTNESS);
+            analogWrite(enablePin, brightness);
+          }
+          Serial.print("brightness: ");
+          Serial.println(brightness);
+          break;
+        case CMD_ANIM:
+          if (a0) {
+            currentAnim = constrain(a0->value.i, 0, (int)(animationCount - 1));
+          }
+          Serial.print("animation: ");
+          Serial.println(currentAnim);
+          break;
+        case CMD_DELAY:
+          if (a0) {
+            animationDelay = a0->value.i;
+          }
+          Serial.print("delay: ");
+          Serial.println(animationDelay);
+          break;
+        case CMD_ROTATE:
+          if (a0) {
+            rotate = a0->value.i & 0x000F;
+          }
+          Serial.print("rotate: ");
+          Serial.println(rotate);
+          break;
+        case CMD_INVERT:
+          invert = !invert;
+          Serial.print("invert: ");
+          Serial.println(invert ? "on" : "off");
+          break;
+        case CMD_MIRROR:
+          mirror = !mirror;
+          Serial.print("mirror: ");
+          Serial.println(mirror ? "on" : "off");
+          break;
+        case CMD_FLIP:
+          flip = !flip;
+          Serial.print("flip: ");
+          Serial.println(flip ? "on" : "off");
+          break;
+        case CMD_TIME:
+          t1 = millis();
+          t2 = milliseconds;
+          Serial.print("time: ");
+          Serial.print(t1);
+          Serial.println(" ms");
+          Serial.print("      ");
+          Serial.println(t2);
+          Serial.print("      ");
+          Serial.println((int32_t)(t2 - t1));
+          break;
+  
+        default:
+          Serial.print("unknown/invalid command \"");
+          Serial.print(parsedChars);
+          Serial.println("\"...");
+      }
     }
   } else {
     serialConn = false;  
