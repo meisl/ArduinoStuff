@@ -1,11 +1,11 @@
 #include <Arduino.h>
 
 // The pins used to communicate with the shift registers (74HC595)
-#define enablePin  7 // active-low; aka OE
+#define enablePin  3 // connect OE (which is active-low) of 74HC595 to collector of an NPN, and pin 3 with a 10K to the base (emitter to GND)
 #define clearPin   6 // active-low; aka MR
 #define latchPin   5 // active-high; aka STCP/ST_CP
 #define clockPin   4 // active-high; aka SHCP/SH_CP
-#define dataPin    3 // active-high; aka DS
+#define dataPin    7 // active-high; aka DS
 
 #define enableBit enablePin
 #define clearBit  clearPin
@@ -90,8 +90,8 @@ void pulseXXX(int pin, bool active_high) {
 #define pulse_clear() pulseBitL(clearBit) // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
 #define pulse_latch() pulseBitH(latchBit) // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
 #define pulse_clock() pulseBitH(clockBit) // rising edge here shifts in the bit currently present at DS; leaves clockPin LOW
-#define enable_on()  clrBit(enableBit) // active-low
-#define enable_off() setBit(enableBit) // -"-
+#define enable_on()  setBit(enableBit) // active-hi
+#define enable_off() clrBit(enableBit) // -"-
 #define set_data()   setBit(dataBit)
 #define clr_data()   clrBit(dataBit)
 
@@ -142,9 +142,10 @@ void setup() {
   pinMode(dataPin,   OUTPUT);
 
   // clear shift regs first:
-  digitalWrite(enablePin, HIGH);  // disable output (it's active-low)
+  
+  analogWrite(enablePin, 0);  // disable output (it's active-low)
   reset595();
-  digitalWrite(enablePin, LOW); // re-enable output
+  analogWrite(enablePin, 255); // re-enable output
 
   // put dataPin and clockPin in default state:
   digitalWrite(dataPin, LOW);
@@ -153,6 +154,7 @@ void setup() {
   configure_interrupts();
   
   Serial.begin(57600);
+  Serial.println("setup done");
 }
 
 
@@ -436,7 +438,7 @@ volatile animFuncPtr animations[] = {
 #define animationCount (sizeof(animations)/sizeof(animFuncPtr))
 volatile uint16_t animStates[animationCount];
 
-volatile byte currentAnim = animationCount - 1;
+volatile byte     currentAnim = animationCount - 1;
 volatile uint16_t brightness = 1;
 volatile uint32_t animationDelay = 5; // in milliseconds
 volatile bool     invert = false;
@@ -464,13 +466,13 @@ ISR(TIMER1_COMPA_vect) {
   }
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
+    pulse_latch(); // transfer last state to outputs
     pwm_tick = 0;
     if (brightness == 0) {
-      enable_off();
+      //enable_off();
     } else {
-      enable_on();
+      //enable_on();
     }
-    pulse_latch(); // transfer last state to outputs
     //Serial.println(t_avg /16.0);
     t_avg = 0;
     currentMask = 1 << 15; // initialize mask for next shifting cycle (pwm_ticks 1..16)
@@ -491,11 +493,10 @@ ISR(TIMER1_COMPA_vect) {
       }
       animationTick = 0;
     }
-
   } else {
     t = TCNT1;
     if (pwm_tick == brightness) {
-      enable_off();
+      //enable_off();
     }
     if (pwm_tick <= 16) {
       if (currentMask & currentState) {
@@ -530,6 +531,7 @@ void loop() {
         if (n > 0) {
           a = constrain(arguments[1], 0, MAX_BRIGHTNESS);
           brightness = a;
+          analogWrite(enablePin, brightness);
         }
         Serial.print("brightness: ");
         Serial.println(brightness);
