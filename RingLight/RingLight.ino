@@ -19,7 +19,7 @@
 //#define visible_signals
 #define signal_duration_ms 50
 
-#define MAX_BRIGHTNESS 32
+#define MAX_BRIGHTNESS 128
 
 
 void pulseXXX(int pin, bool active_high) {
@@ -67,8 +67,8 @@ void pulseXXX(int pin, bool active_high) {
 #define clr_data()   clrPin(dataPin)
 */
 
-/*
-// =23/47/79
+
+/*// =23/47/79
 #define setPin(pin) PORTD |=  (byte)digitalPinToBitMask(pin)
 #define clrPin(pin) PORTD &= ~(byte)digitalPinToBitMask(pin)
 #define pulseH(pin) setPin(pin); clrPin(pin)
@@ -81,6 +81,7 @@ void pulseXXX(int pin, bool active_high) {
 #define set_data()   setPin(dataPin)
 #define clr_data()   clrPin(dataPin)
 */
+
 
 // =8/21/53
 #define setBit(bit) asm volatile("sbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bit))
@@ -123,9 +124,9 @@ void configure_interrupts(void) {
   
   // Timer 1 (16 bit)
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                          // TIMER1 CTC mode ("Clear Timer on Compare")
-  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | TIMER1_PRESCALE_BY_1;   // TIMER1 CTC mode @ 16MHz
+  TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | TIMER1_PRESCALE_BY_8;   // TIMER1 CTC mode @ 2MHz
   TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
-  OCR1A  = (5000) - 1;   // compare match register: interrupt every 312.5 µs ~> 3.2 KHz (32 brightness levels, refresh-rate 100Hz)
+  OCR1A  = (125) - 1;   // compare match register: interrupt every 312.5 µs ~> 3.2 KHz (32 brightness levels, refresh-rate 100Hz)
   TCNT1  = 0;
 /* there is no TIMER2 on the Atmega32uXX
   TCCR2 = 0 | TIMER2_PRESCALE_BY_8; // TIMER2 in normal mode @ 2MHz / 0.5µs period (overflow after 128 µs)
@@ -462,7 +463,21 @@ volatile bool     flip = false;   // mirror at 0-axis (depends on rotate)
 volatile uint32_t milliseconds = 0;
 volatile bool     milliseconds_req = false;
 
-volatile uint16_t t_avg;
+volatile uint16_t timer1_time;
+volatile bool     timer1_time_req = false;
+
+typedef byte displayBuffer_t[24];
+volatile displayBuffer_t displayBufferA, displayBufferB;
+
+void bitsToBuf(uint16_t bits, volatile byte *buf, byte bitCount) {
+  bitCount--;
+  uint16_t mask = 1 << bitCount;
+  buf += bitCount;
+  while (mask) {
+    *buf-- = (bits & mask) ? brightness : 0;
+    mask >>= 1;
+  }
+}
 
 ISR(TIMER1_COMPA_vect) {
   static uint32_t milliseconds_private = 0;
@@ -471,8 +486,52 @@ ISR(TIMER1_COMPA_vect) {
   static uint16_t pwm_tick = MAX_BRIGHTNESS;
   static uint32_t animationTick = 0;
   static uint16_t currentState;
-  static uint16_t t_avg_private;
-  
+  static uint32_t t_avg_private;
+
+  byte i = sizeof(displayBuffer_t);
+
+/*
+  do {
+    i--;
+    if (pwm_tick < displayBufferA[i]) {
+      set_data();
+    } else {
+      clr_data();
+    }
+    pulse_clock();
+  } while (i > 0);
+  pulse_latch(); // transfer to outputs
+*/
+
+  volatile byte* buf = &displayBufferA[0] + sizeof(displayBuffer_t);
+  asm volatile("                            ; cycles  // comment                        \n"
+      "pwm_tick_loop:                                                                   \n"
+      "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO (bogus on first iteration - doesn't matter) \n"
+      "         ld   __tmp_reg__, -%a1      ; 2       // fetch value                    \n" 
+      "         cp   %[tick], __tmp_reg__   ; 1       // tick < value ?                 \n" 
+      "         brlo pwm_oneBit             ; 1/2     // if so shift out a 1            \n"
+      "pwm_zeroBit:                                                                     \n"
+      "         cbi  %[port], %[data_bit]   ; 2       // else a 0                       \n"
+      "         rjmp pwm_clock              ; 2                                         \n"
+      "pwm_oneBit:                                                                      \n"
+      "         sbi  %[port], %[data_bit]   ; 2                                         \n"
+      "pwm_clock:                                                                       \n"
+      "         sbi  %[port], %[clock_bit]  ; 2       // SHCP HI                        \n"
+      "         dec  %[i]                   ; 1       // next?                          \n" 
+      "         brne pwm_tick_loop          ; 1/2     // repeat if %[i] still > 0       \n"
+      "pwm_tick_end:                                                                    \n"
+      "         sbi  %[port], %[latch_bit]  ; 2       // STCP HI                        \n"
+      "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
+      "         cbi  %[port], %[latch_bit]  ; 2       // STCP LO                        \n"
+      : [i]         "+r"  (i), // "r" means any register
+                    "+e"  (buf) // %a1
+      : [tick]      "r"   (pwm_tick), 
+        [port]      "I"   (_SFR_IO_ADDR(PORTD)),
+        [data_bit]  "I"   (dataBit),
+        [clock_bit] "I"   (clockBit),
+        [latch_bit] "I"   (latchBit)
+  );
+
   if (++ticks == 4) {
     ticks = 0;
     if (++millisQuarters == 4) {
@@ -488,7 +547,10 @@ ISR(TIMER1_COMPA_vect) {
   }
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
-    t_avg = t_avg_private / pwm_tick;
+    if (timer1_time_req) {
+      timer1_time = t_avg_private;// / (pwm_tick - 1);
+      timer1_time_req = false;
+    }
     t_avg_private = 0;
     pwm_tick = 0;
 
@@ -507,19 +569,13 @@ ISR(TIMER1_COMPA_vect) {
         currentState = rotateLeft(mirrorBits(currentState), 1);
       }
       animationTick = 0;
+      bitsToBuf(currentState, &displayBufferA[0], 16);
     }
   }
 
-  for (uint16_t mask = 1 << 15; mask != 0; mask >>= 1) {
-    if (mask & currentState) {
-      set_data();
-    } else {
-      clr_data();
-    }
-    pulse_clock();
+  if (pwm_tick == 3) {
+    t_avg_private += TCNT1;
   }
-  pulse_latch(); // transfer to outputs
-  t_avg_private += TCNT1;
 
 }
 
@@ -530,12 +586,20 @@ uint32_t millis2() {
   return milliseconds;  
 }
 
+uint16_t tm_timer1() {
+  timer1_time_req = true;
+  while (timer1_time_req) {
+  }
+  return timer1_time;
+}
+
 void doCommands() {
   node_t *ast = parseCommand();
   if (ast != NULL) {
     int n = ast->childCount;
     node_t *a0 = (n > 0) ? &(ast->children->node) : NULL;
     uint32_t t1, t2;
+    uint16_t t3;
     switch (ast->value.c) {
       case CMD_BRIGHTNESS:
         if (a0) {
@@ -545,7 +609,7 @@ void doCommands() {
             brightness += a0->value.i;
           }
           brightness = constrain(brightness, 0, MAX_BRIGHTNESS);
-          analogWrite(enablePin, brightness);
+          //analogWrite(enablePin, brightness);
         }
         Serial.print("brightness: ");
         Serial.println(brightness);
@@ -599,6 +663,7 @@ void doCommands() {
       case CMD_TIME:
         t1 = millis();
         t2 = millis2();
+        t3 = tm_timer1();
         Serial.print("time: ");
         Serial.print(t1);
         Serial.println(" ms");
@@ -607,7 +672,7 @@ void doCommands() {
         Serial.print("      ");
         Serial.println((int32_t)(t2 - t1));
         Serial.print("t_avg: ");
-        Serial.println(t_avg);
+        Serial.println(t3);
         break;
 
       default:
