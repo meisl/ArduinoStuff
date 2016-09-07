@@ -471,7 +471,6 @@ ISR(TIMER1_COMPA_vect) {
   static uint16_t pwm_tick = MAX_BRIGHTNESS;
   static uint32_t animationTick = 0;
   static uint16_t currentState;
-  static uint16_t currentMask;
   static uint16_t t_avg_private;
   
   if (++ticks == 4) {
@@ -489,11 +488,9 @@ ISR(TIMER1_COMPA_vect) {
   }
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
-    pulse_latch(); // transfer last state to outputs
     t_avg = t_avg_private / pwm_tick;
     t_avg_private = 0;
     pwm_tick = 0;
-    currentMask = 1 << 15; // initialize mask for next shifting cycle (pwm_ticks 1..16)
 
     if (++animationTick > animationDelay) { // Note: it's NOT >= here!
       uint16_t oldState = animStates[currentAnim];
@@ -513,16 +510,17 @@ ISR(TIMER1_COMPA_vect) {
     }
   }
 
-  if (pwm_tick < 16) {
-    if (currentMask & currentState) {
+  for (uint16_t mask = 1 << 15; mask != 0; mask >>= 1) {
+    if (mask & currentState) {
       set_data();
     } else {
       clr_data();
     }
     pulse_clock();
-    currentMask >>= 1;
-    t_avg_private += TCNT1;
   }
+  pulse_latch(); // transfer to outputs
+  t_avg_private += TCNT1;
+
 }
 
 uint32_t millis2() {
