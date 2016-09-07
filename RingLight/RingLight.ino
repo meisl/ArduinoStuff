@@ -500,7 +500,7 @@ ISR(TIMER1_COMPA_vect) {
 
     if (++animationTick > animationDelay) { // Note: it's NOT >= here!
       uint16_t oldState = animStates[currentAnim];
-      currentState = animations[currentAnim](oldState, milliseconds);
+      currentState = animations[currentAnim](oldState, milliseconds_private);
       animStates[currentAnim] = currentState;
       if (invert) {
         currentState ^= 0xFFFF;  
@@ -587,7 +587,12 @@ void loop() {
           break;
         case CMD_ROTATE:
           if (a0) {
-            rotate = a0->value.i & 0x000F;
+            if (a0->type == TYPE_INT) {
+              rotate = a0->value.i;
+            } else {
+              rotate += a0->value.i;
+            }
+            rotate &= 0x000F;
           }
           Serial.print("rotate: ");
           Serial.println(rotate);
