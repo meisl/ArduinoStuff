@@ -19,7 +19,7 @@
 //#define visible_signals
 #define signal_duration_ms 50
 
-#define MAX_BRIGHTNESS 128
+#define MAX_BRIGHTNESS 125
 
 
 void pulseXXX(int pin, bool active_high) {
@@ -114,8 +114,8 @@ void reset595() {
 #define TIMER2_PRESCALE_BY_1    (                            (1 << CS20)) //  16.000 MHz /  62.5 ns
 #define TIMER2_PRESCALE_BY_8    (              (1 << CS21)              ) //   2.000 MHz / 500.0 ns
 #define TIMER2_PRESCALE_BY_32   (              (1 << CS21) | (1 << CS20)) // 500.000 KHz /   2.0 µs
-#define TIMER2_PRESCALE_BY_64   ((1 << CS22)                            ) // 250.000 MHz /   4.0 µs 
-#define TIMER2_PRESCALE_BY_128  ((1 << CS22)               | (1 << CS20)) // 125.000 MHz /   8.0 µs
+#define TIMER2_PRESCALE_BY_64   ((1 << CS22)                            ) // 250.000 KHz /   4.0 µs 
+#define TIMER2_PRESCALE_BY_128  ((1 << CS22)               | (1 << CS20)) // 125.000 KHz /   8.0 µs
 #define TIMER2_PRESCALE_BY_256  ((1 << CS22) | (1 << CS21)              ) //  62.500 KHz /  16.0 µs
 #define TIMER2_PRESCALE_BY_1024 ((1 << CS22) | (1 << CS21) | (1 << CS20)) //  15.625 KHz /  64.0 µs
 
@@ -126,7 +126,7 @@ void configure_interrupts(void) {
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                          // TIMER1 CTC mode ("Clear Timer on Compare")
   TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | TIMER1_PRESCALE_BY_8;   // TIMER1 CTC mode @ 2MHz
   TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
-  OCR1A  = (125) - 1;   // compare match register: interrupt every 312.5 µs ~> 3.2 KHz (32 brightness levels, refresh-rate 100Hz)
+  OCR1A  = (62) - 1;   // compare match register: interrupt every 312.5 µs ~> 3.2 KHz (32 brightness levels, refresh-rate 100Hz)
   TCNT1  = 0;
 /* there is no TIMER2 on the Atmega32uXX
   TCCR2 = 0 | TIMER2_PRESCALE_BY_8; // TIMER2 in normal mode @ 2MHz / 0.5µs period (overflow after 128 µs)
@@ -144,9 +144,9 @@ void setup() {
 
   // clear shift regs first:
   
-  analogWrite(enablePin, 0);  // disable output (it's active-low)
+  digitalWrite(enablePin, LOW);  // disable output
   reset595();
-  analogWrite(enablePin, 255); // re-enable output
+  digitalWrite(enablePin, HIGH); // re-enable output
 
   // put dataPin and clockPin in default state:
   digitalWrite(dataPin, LOW);
@@ -505,20 +505,36 @@ ISR(TIMER1_COMPA_vect) {
 
   volatile byte* buf = &displayBufferA[0] + sizeof(displayBuffer_t);
   asm volatile("                            ; cycles  // comment                        \n"
-      "pwm_tick_loop:                                                                   \n"
-      "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO (bogus on first iteration - doesn't matter) \n"
-      "         ld   __tmp_reg__, -%a1      ; 2       // fetch value                    \n" 
-      "         cp   %[tick], __tmp_reg__   ; 1       // tick < value ?                 \n" 
-      "         brlo pwm_oneBit             ; 1/2     // if so shift out a 1            \n"
+      "         rjmp pwm_tick_loop0         ; 2       // assuming data_bit is 0 initially \n"
       "pwm_zeroBit:                                                                     \n"
-      "         cbi  %[port], %[data_bit]   ; 2       // else a 0                       \n"
-      "         rjmp pwm_clock              ; 2                                         \n"
-      "pwm_oneBit:                                                                      \n"
-      "         sbi  %[port], %[data_bit]   ; 2                                         \n"
-      "pwm_clock:                                                                       \n"
+      "         cbi  %[port], %[data_bit]   ; 2       // clear data bit                 \n"
       "         sbi  %[port], %[clock_bit]  ; 2       // SHCP HI                        \n"
       "         dec  %[i]                   ; 1       // next?                          \n" 
-      "         brne pwm_tick_loop          ; 1/2     // repeat if %[i] still > 0       \n"
+      "         breq pwm_tick_end           ; 1/2     // stop if i == 0                 \n"
+      "pwm_tick_loop0:                      ; -       // last data bit was a 0          \n"
+      "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO (bogus on first iteration - doesn't matter) \n"
+      "         ld   __tmp_reg__, -%a1      ; 2       // fetch value                    \n" 
+      "         cp   %[tick], __tmp_reg__   ; 1       // tick < value ?                 \n"
+      "         brlo pwm_oneBit             ; 1/2     // if so shift out a 1            \n"
+      "         sbi  %[port], %[clock_bit]  ; 2       // else data bit is still 0 -> SHCP HI \n"
+      "         dec  %[i]                   ; 1       // next?                          \n" 
+      "         brne pwm_tick_loop0         ; 1/2     // repeat if %[i] still > 0       \n"
+      "         rjmp pwm_tick_end           ; 2                                         \n"
+      "pwm_oneBit:                                                                      \n"
+      "         sbi  %[port], %[data_bit]   ; 2                                         \n"
+      "         sbi  %[port], %[clock_bit]  ; 2       // SHCP HI                        \n"
+      "         dec  %[i]                   ; 1       // next?                          \n" 
+      "         breq pwm_tick_end_clear_data; 2       // stop if i==0                   \n"
+      "pwm_tick_loop1:                      ; -       // last data bit was a 1          \n"
+      "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
+      "         ld   __tmp_reg__, -%a1      ; 2       // fetch value                    \n" 
+      "         cp   %[tick], __tmp_reg__   ; 1       // tick >= value ?                \n"
+      "         brsh pwm_zeroBit            ; 1/2     // if so shift out a 0            \n"
+      "         sbi  %[port], %[clock_bit]  ; 2       // else data bit is still 1 -> SHCP HI \n"
+      "         dec  %[i]                   ; 1       // next?                          \n" 
+      "         brne pwm_tick_loop1         ; 1/2     // repeat if %[i] still > 0       \n"
+      "pwm_tick_end_clear_data:                                                         \n"
+      "         cbi  %[port], %[data_bit]   ; 2       // ensure data bit == 0 in the end  \n"
       "pwm_tick_end:                                                                    \n"
       "         sbi  %[port], %[latch_bit]  ; 2       // STCP HI                        \n"
       "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
@@ -531,7 +547,11 @@ ISR(TIMER1_COMPA_vect) {
         [clock_bit] "I"   (clockBit),
         [latch_bit] "I"   (latchBit)
   );
-
+  
+  if (pwm_tick == 0) {
+    t_avg_private += TCNT1;
+  }
+  
   if (++ticks == 4) {
     ticks = 0;
     if (++millisQuarters == 4) {
@@ -573,9 +593,6 @@ ISR(TIMER1_COMPA_vect) {
     }
   }
 
-  if (pwm_tick == 3) {
-    t_avg_private += TCNT1;
-  }
 
 }
 
