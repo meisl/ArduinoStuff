@@ -458,19 +458,19 @@ volatile bool     invert = false;
 volatile byte     rotate = 0;
 volatile bool     mirror = false; // mirror at vertical axis (does not depend on rotate)
 volatile bool     flip = false;   // mirror at 0-axis (depends on rotate)
-volatile uint32_t animationTick = 0;
-volatile uint16_t pwm_tick = MAX_BRIGHTNESS;
-volatile uint16_t currentState;
-volatile uint16_t currentMask;
 
-volatile bool millis_req = false;
 volatile uint32_t milliseconds = 0;
+volatile bool     milliseconds_req = false;
 
 uint16_t t_avg;
 ISR(TIMER1_COMPA_vect) {
   static uint32_t milliseconds_private = 0;
   static byte millisQuarters = 0;
   static byte ticks = 0;
+  static uint16_t pwm_tick = MAX_BRIGHTNESS;
+  static uint32_t animationTick = 0;
+  static uint16_t currentState;
+  static uint16_t currentMask;
   uint16_t t;
   if (++ticks == 4) {
     ticks = 0;
@@ -481,9 +481,9 @@ ISR(TIMER1_COMPA_vect) {
       milliseconds_private += 1;
     }
   }
-  if (millis_req) {
+  if (milliseconds_req) {
     milliseconds = milliseconds_private;  
-    millis_req = false;
+    milliseconds_req = false;
   }
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
@@ -533,10 +533,96 @@ ISR(TIMER1_COMPA_vect) {
 }
 
 uint32_t millis2() {
-  millis_req = true;
-  while (millis_req) {
+  milliseconds_req = true;
+  while (milliseconds_req) {
   }
   return milliseconds;  
+}
+
+void doCommands() {
+  node_t *ast = parseCommand();
+  if (ast != NULL) {
+    int n = ast->childCount;
+    node_t *a0 = (n > 0) ? &(ast->children->node) : NULL;
+    uint32_t t1, t2;
+    switch (ast->value.c) {
+      case CMD_BRIGHTNESS:
+        if (a0) {
+          if (a0->type == TYPE_INT) {
+            brightness = a0->value.i;
+          } else {
+            brightness += a0->value.i;
+          }
+          brightness = constrain(brightness, 0, MAX_BRIGHTNESS);
+          analogWrite(enablePin, brightness);
+        }
+        Serial.print("brightness: ");
+        Serial.println(brightness);
+        break;
+      case CMD_ANIM:
+        if (a0) {
+          if (a0->type == TYPE_INT) {
+            currentAnim = a0->value.i;
+          } else {
+            currentAnim += a0->value.i;
+          }
+          currentAnim = constrain(currentAnim, 0, (int)(animationCount - 1));
+        }
+        Serial.print("animation: ");
+        Serial.println(currentAnim);
+        break;
+      case CMD_DELAY:
+        if (a0) {
+          animationDelay = a0->value.i;
+        }
+        Serial.print("delay: ");
+        Serial.println(animationDelay);
+        break;
+      case CMD_ROTATE:
+        if (a0) {
+          if (a0->type == TYPE_INT) {
+            rotate = a0->value.i;
+          } else {
+            rotate += a0->value.i;
+          }
+          rotate &= 0x000F;
+        }
+        Serial.print("rotate: ");
+        Serial.println(rotate);
+        break;
+      case CMD_INVERT:
+        invert = !invert;
+        Serial.print("invert: ");
+        Serial.println(invert ? "on" : "off");
+        break;
+      case CMD_MIRROR:
+        mirror = !mirror;
+        Serial.print("mirror: ");
+        Serial.println(mirror ? "on" : "off");
+        break;
+      case CMD_FLIP:
+        flip = !flip;
+        Serial.print("flip: ");
+        Serial.println(flip ? "on" : "off");
+        break;
+      case CMD_TIME:
+        t1 = millis();
+        t2 = millis2();
+        Serial.print("time: ");
+        Serial.print(t1);
+        Serial.println(" ms");
+        Serial.print("      ");
+        Serial.println(t2);
+        Serial.print("      ");
+        Serial.println((int32_t)(t2 - t1));
+        break;
+
+      default:
+        Serial.print("unknown/invalid command \"");
+        Serial.print(parsedChars);
+        Serial.println("\"...");
+    }
+  } 
 }
 
 bool serialConn = false;
@@ -547,92 +633,11 @@ void loop() {
       Serial.println("Hi there!");
       serialConn = true;
     }
-    node_t *ast = parseCommand();
-    if (ast != NULL) {
-      int n = ast->childCount;
-      node_t *a0 = (n > 0) ? &(ast->children->node) : NULL;
-      uint32_t t1, t2;
-      switch (ast->value.c) {
-        case CMD_BRIGHTNESS:
-          if (a0) {
-            if (a0->type == TYPE_INT) {
-              brightness = a0->value.i;
-            } else {
-              brightness += a0->value.i;
-            }
-            brightness = constrain(brightness, 0, MAX_BRIGHTNESS);
-            analogWrite(enablePin, brightness);
-          }
-          Serial.print("brightness: ");
-          Serial.println(brightness);
-          break;
-        case CMD_ANIM:
-          if (a0) {
-            if (a0->type == TYPE_INT) {
-              currentAnim = a0->value.i;
-            } else {
-              currentAnim += a0->value.i;
-            }
-            currentAnim = constrain(currentAnim, 0, (int)(animationCount - 1));
-          }
-          Serial.print("animation: ");
-          Serial.println(currentAnim);
-          break;
-        case CMD_DELAY:
-          if (a0) {
-            animationDelay = a0->value.i;
-          }
-          Serial.print("delay: ");
-          Serial.println(animationDelay);
-          break;
-        case CMD_ROTATE:
-          if (a0) {
-            if (a0->type == TYPE_INT) {
-              rotate = a0->value.i;
-            } else {
-              rotate += a0->value.i;
-            }
-            rotate &= 0x000F;
-          }
-          Serial.print("rotate: ");
-          Serial.println(rotate);
-          break;
-        case CMD_INVERT:
-          invert = !invert;
-          Serial.print("invert: ");
-          Serial.println(invert ? "on" : "off");
-          break;
-        case CMD_MIRROR:
-          mirror = !mirror;
-          Serial.print("mirror: ");
-          Serial.println(mirror ? "on" : "off");
-          break;
-        case CMD_FLIP:
-          flip = !flip;
-          Serial.print("flip: ");
-          Serial.println(flip ? "on" : "off");
-          break;
-        case CMD_TIME:
-          t1 = millis();
-          t2 = millis2();
-          Serial.print("time: ");
-          Serial.print(t1);
-          Serial.println(" ms");
-          Serial.print("      ");
-          Serial.println(t2);
-          Serial.print("      ");
-          Serial.println((int32_t)(t2 - t1));
-          break;
-  
-        default:
-          Serial.print("unknown/invalid command \"");
-          Serial.print(parsedChars);
-          Serial.println("\"...");
-      }
-    }
+    doCommands();
   } else {
     serialConn = false;  
   }
+
 
   delay(1);
 }
