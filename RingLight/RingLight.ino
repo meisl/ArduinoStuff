@@ -462,7 +462,8 @@ volatile bool     flip = false;   // mirror at 0-axis (depends on rotate)
 volatile uint32_t milliseconds = 0;
 volatile bool     milliseconds_req = false;
 
-uint16_t t_avg;
+volatile uint16_t t_avg;
+
 ISR(TIMER1_COMPA_vect) {
   static uint32_t milliseconds_private = 0;
   static byte millisQuarters = 0;
@@ -471,7 +472,8 @@ ISR(TIMER1_COMPA_vect) {
   static uint32_t animationTick = 0;
   static uint16_t currentState;
   static uint16_t currentMask;
-  uint16_t t;
+  static uint16_t t_avg_private;
+  
   if (++ticks == 4) {
     ticks = 0;
     if (++millisQuarters == 4) {
@@ -488,14 +490,9 @@ ISR(TIMER1_COMPA_vect) {
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
     pulse_latch(); // transfer last state to outputs
+    t_avg = t_avg_private / pwm_tick;
+    t_avg_private = 0;
     pwm_tick = 0;
-    if (brightness == 0) {
-      //enable_off();
-    } else {
-      //enable_on();
-    }
-    //Serial.println(t_avg /16.0);
-    t_avg = 0;
     currentMask = 1 << 15; // initialize mask for next shifting cycle (pwm_ticks 1..16)
 
     if (++animationTick > animationDelay) { // Note: it's NOT >= here!
@@ -514,21 +511,17 @@ ISR(TIMER1_COMPA_vect) {
       }
       animationTick = 0;
     }
-  } else {
-    t = TCNT1;
-    if (pwm_tick == brightness) {
-      //enable_off();
+  }
+
+  if (pwm_tick < 16) {
+    if (currentMask & currentState) {
+      set_data();
+    } else {
+      clr_data();
     }
-    if (pwm_tick <= 16) {
-      if (currentMask & currentState) {
-        set_data();
-      } else {
-        clr_data();
-      }
-      pulse_clock();
-      currentMask >>= 1;
-      t_avg += TCNT1 - t;
-    }
+    pulse_clock();
+    currentMask >>= 1;
+    t_avg_private += TCNT1;
   }
 }
 
@@ -615,6 +608,8 @@ void doCommands() {
         Serial.println(t2);
         Serial.print("      ");
         Serial.println((int32_t)(t2 - t1));
+        Serial.print("t_avg: ");
+        Serial.println(t_avg);
         break;
 
       default:
