@@ -159,9 +159,9 @@ void setup() {
 
 
 enum { // node type
-  TYPE_CMD = 0,
-  TYPE_INT = 1,
-  TYPE_OP  = 2
+  TYPE_CMD   = 0,
+  TYPE_INT   = 1,
+  TYPE_DELTA = 2
 };
 
 #define CMD_NONE        0
@@ -262,11 +262,15 @@ struct node_t *parseCommand() {
           case '\t':
             break;
           case '+':
-            // TODO: store arg
+            ast.childCount++;
+            child->type = TYPE_DELTA;
+            child->value.i = 1;
             state = STATE_SKIP_TIL_EOL;
             break;
           case '-':
-            // TODO: store arg
+            ast.childCount++;
+            child->type = TYPE_DELTA;
+            child->value.i = -1;
             state = STATE_SKIP_TIL_EOL;
             break;
           case '0':
@@ -458,20 +462,28 @@ volatile uint32_t animationTick = 0;
 volatile uint16_t pwm_tick = MAX_BRIGHTNESS;
 volatile uint16_t currentState;
 volatile uint16_t currentMask;
-byte millisQuarters = 0;
-byte ticks = 0;
-uint32_t milliseconds = 0;
+
+volatile bool millis_req = false;
+volatile uint32_t milliseconds = 0;
+
 uint16_t t_avg;
 ISR(TIMER1_COMPA_vect) {
+  static uint32_t milliseconds_private = 0;
+  static byte millisQuarters = 0;
+  static byte ticks = 0;
   uint16_t t;
   if (++ticks == 4) {
     ticks = 0;
     if (++millisQuarters == 4) {
       millisQuarters = 0;
-      milliseconds += 2;  
+      milliseconds_private += 2;  
     } else {
-      milliseconds += 1;
+      milliseconds_private += 1;
     }
+  }
+  if (millis_req) {
+    milliseconds = milliseconds_private;  
+    millis_req = false;
   }
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
@@ -520,6 +532,13 @@ ISR(TIMER1_COMPA_vect) {
   }
 }
 
+uint32_t millis2() {
+  millis_req = true;
+  while (millis_req) {
+  }
+  return milliseconds;  
+}
+
 bool serialConn = false;
 
 void loop() {
@@ -536,7 +555,12 @@ void loop() {
       switch (ast->value.c) {
         case CMD_BRIGHTNESS:
           if (a0) {
-            brightness = constrain(a0->value.i, 0, MAX_BRIGHTNESS);
+            if (a0->type == TYPE_INT) {
+              brightness = a0->value.i;
+            } else {
+              brightness += a0->value.i;
+            }
+            brightness = constrain(brightness, 0, MAX_BRIGHTNESS);
             analogWrite(enablePin, brightness);
           }
           Serial.print("brightness: ");
@@ -544,7 +568,12 @@ void loop() {
           break;
         case CMD_ANIM:
           if (a0) {
-            currentAnim = constrain(a0->value.i, 0, (int)(animationCount - 1));
+            if (a0->type == TYPE_INT) {
+              currentAnim = a0->value.i;
+            } else {
+              currentAnim += a0->value.i;
+            }
+            currentAnim = constrain(currentAnim, 0, (int)(animationCount - 1));
           }
           Serial.print("animation: ");
           Serial.println(currentAnim);
@@ -580,7 +609,7 @@ void loop() {
           break;
         case CMD_TIME:
           t1 = millis();
-          t2 = milliseconds;
+          t2 = millis2();
           Serial.print("time: ");
           Serial.print(t1);
           Serial.println(" ms");
