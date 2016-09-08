@@ -469,9 +469,12 @@ volatile bool     timer1_time_req = false;
 volatile bool     pending_displayEvent = false;
 volatile uint16_t missed_displayEvents = 0;
 
-typedef byte displayBuffer_t[24];
-volatile displayBuffer_t displayBufferA, displayBufferB;
+typedef volatile byte displayBuffer_t[24];
+displayBuffer_t displayBufferA, displayBufferB;
 
+typedef volatile byte* displayBufferPtr_t;
+displayBufferPtr_t frontBuffer = displayBufferA;
+displayBufferPtr_t backBuffer  = displayBufferB;
 
 ISR(TIMER1_COMPA_vect) {
   static uint16_t halfMicros = 0; // assuming TIMER1 @2MHz (PRESCALE_BY_8)
@@ -504,7 +507,7 @@ ISR(TIMER1_COMPA_vect) {
   pulse_latch(); // transfer to outputs
 */
 
-  volatile byte* buf = &displayBufferA[0] + sizeof(displayBuffer_t);
+  displayBufferPtr_t bufEnd = frontBuffer + sizeof(displayBuffer_t);
   asm volatile("                            ; cycles  // comment                        \n"
       "         rjmp pwm_tick_loop0         ; 2       // assuming data_bit is 0 initially \n"
       "pwm_zeroBit:                                                                     \n"
@@ -541,7 +544,7 @@ ISR(TIMER1_COMPA_vect) {
       "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
       "         cbi  %[port], %[latch_bit]  ; 2       // STCP LO                        \n"
       : [i]         "+r"  (i), // "r" means any register
-                    "+e"  (buf) // %a1
+                    "+e"  (bufEnd) // %a1
       : [tick]      "r"   (pwm_tick), 
         [port]      "I"   (_SFR_IO_ADDR(PORTD)),
         [data_bit]  "I"   (dataBit),
@@ -555,6 +558,9 @@ ISR(TIMER1_COMPA_vect) {
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
     if (!pending_displayEvent) {
+      displayBufferPtr_t temp = frontBuffer;
+      frontBuffer = backBuffer;
+      backBuffer = temp;
       milliseconds = milliseconds_private;
       pending_displayEvent = true;
     } else {
@@ -603,7 +609,8 @@ void doAnimations(uint32_t ms, volatile byte *buf) {
 
 void check_displayEvent() {
   if (pending_displayEvent) {
-    doAnimations(milliseconds, &displayBufferA[0]);
+    memcpy((void*)backBuffer, (void*)frontBuffer, sizeof(displayBuffer_t));
+    doAnimations(milliseconds, backBuffer);
     pending_displayEvent = false;
   }  
 }
