@@ -466,25 +466,16 @@ volatile bool     milliseconds_req = false;
 volatile uint16_t timer1_time;
 volatile bool     timer1_time_req = false;
 
+volatile bool     pending_displayEvent = false;
+
 typedef byte displayBuffer_t[24];
 volatile displayBuffer_t displayBufferA, displayBufferB;
 
-void bitsToBuf(uint16_t bits, volatile byte *buf, byte bitCount) {
-  bitCount--;
-  uint16_t mask = 1 << bitCount;
-  buf += bitCount;
-  while (mask) {
-    *buf-- = (bits & mask) ? brightness : 0;
-    mask >>= 1;
-  }
-}
 
 ISR(TIMER1_COMPA_vect) {
-  static uint32_t milliseconds_private = 0;
   static uint16_t halfMicros = 0; // assuming TIMER1 @2MHz (PRESCALE_BY_8)
+  static uint32_t milliseconds_private = 0;
   static uint16_t pwm_tick = MAX_BRIGHTNESS;
-  static uint32_t animationTick = 0;
-  static uint16_t currentState;
   static uint32_t t_avg_private;
 
   halfMicros += (TIMER1_TOP+1);
@@ -560,19 +551,37 @@ ISR(TIMER1_COMPA_vect) {
   if (pwm_tick == 0) {
     t_avg_private += TCNT1;
   }
-
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
+    if (!pending_displayEvent) {
+      milliseconds = milliseconds_private;
+      pending_displayEvent = true;
+    }
     if (timer1_time_req) {
       timer1_time = t_avg_private;// / (pwm_tick - 1);
       timer1_time_req = false;
     }
     t_avg_private = 0;
     pwm_tick = 0;
+  }
+}
 
+
+void bitsToBuf(uint16_t bits, volatile byte *buf, byte bitCount) {
+  bitCount--;
+  uint16_t mask = 1 << bitCount;
+  buf += bitCount;
+  while (mask) {
+    *buf-- = (bits & mask) ? brightness : 0;
+    mask >>= 1;
+  }
+}
+
+void doAnimations(uint32_t ms, volatile byte *buf) {
+    static uint32_t animationTick = 0;
     if (++animationTick > animationDelay) { // Note: it's NOT >= here!
       uint16_t oldState = animStates[currentAnim];
-      currentState = animations[currentAnim](oldState, milliseconds_private);
+      uint16_t currentState = animations[currentAnim](oldState, ms);
       animStates[currentAnim] = currentState;
       if (invert) {
         currentState ^= 0xFFFF;  
@@ -585,11 +594,15 @@ ISR(TIMER1_COMPA_vect) {
         currentState = rotateLeft(mirrorBits(currentState), 1);
       }
       animationTick = 0;
-      bitsToBuf(currentState, &displayBufferA[0], 16);
-    }
-  }
+      bitsToBuf(currentState, buf, 16);
+    } 
+}
 
-
+void check_displayEvent() {
+  if (pending_displayEvent) {
+    doAnimations(milliseconds, &displayBufferA[0]);
+    pending_displayEvent = false;
+  }  
 }
 
 uint32_t millis2() {
@@ -704,6 +717,7 @@ void loop() {
       Serial.println("Hi there!");
       serialConn = true;
     }
+    check_displayEvent();
     doCommands();
   } else {
     serialConn = false;  
