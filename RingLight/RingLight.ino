@@ -467,6 +467,7 @@ volatile uint16_t timer1_time;
 volatile bool     timer1_time_req = false;
 
 volatile bool     pending_displayEvent = false;
+volatile uint16_t missed_displayEvents = 0;
 
 typedef byte displayBuffer_t[24];
 volatile displayBuffer_t displayBufferA, displayBufferB;
@@ -556,6 +557,8 @@ ISR(TIMER1_COMPA_vect) {
     if (!pending_displayEvent) {
       milliseconds = milliseconds_private;
       pending_displayEvent = true;
+    } else {
+      missed_displayEvents++;
     }
     if (timer1_time_req) {
       timer1_time = t_avg_private;// / (pwm_tick - 1);
@@ -699,6 +702,8 @@ void doCommands() {
         Serial.println((int32_t)(t2 - t1));
         Serial.print("t_avg: ");
         Serial.println(t3);
+        Serial.print("missed: ");
+        Serial.println(missed_displayEvents);
         break;
 
       default:
