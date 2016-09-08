@@ -20,7 +20,7 @@
 #define signal_duration_ms 50
 
 #define MAX_BRIGHTNESS          16
-#define TIMER1_TOP              (80-1) // @2MHz (PRESCALE_BY_8) this gives 2000/(TIMER1_TOP+1) KHz PWM frequency
+#define TIMER1_TOP              (77-1) // @2MHz (PRESCALE_BY_8) this gives 2000/(TIMER1_TOP+1) KHz PWM frequency
 #define DISPLAY_COLUMNS         (4*8)
 #define DISPLAY_ROWS            8
 
@@ -669,10 +669,17 @@ void doCommands() {
         break;
       case CMD_DELAY:
         if (a0) {
-          animationDelay = a0->value.i;
+          if (a0->type == TYPE_INT) {
+            animationDelay = a0->value.i;
+          } else {
+            animationDelay += a0->value.i;
+          }
         }
         Serial.print("delay: ");
-        Serial.println(animationDelay);
+        Serial.print(animationDelay);
+        Serial.print(" (");
+        Serial.print(2000000.0 / ((TIMER1_TOP+1) * MAX_BRIGHTNESS * DISPLAY_ROWS * (animationDelay+1)));
+        Serial.println(" Hz)");
         break;
       case CMD_ROTATE:
         if (a0) {
@@ -731,12 +738,12 @@ bool serialConn = false;
 void loop() {
   if (Serial) {
     if (!serialConn) { // greet if reconnected
-      float f = 2000/(TIMER1_TOP+1);
-      Serial.print(" f_PWM:  "); Serial.print(f); Serial.println(" KHz");
+      float f = 2000000.0/(TIMER1_TOP+1);
+      Serial.print(" f_PWM: "); Serial.print(f); Serial.println(" Hz");
       f /= MAX_BRIGHTNESS;
-      Serial.print("f_line:   "); Serial.print(f); Serial.print(" KHz ("); Serial.print(MAX_BRIGHTNESS); Serial.println(" brightness lvls)");
-      f = f * 1000 / DISPLAY_ROWS;
-      Serial.print("f_refr: "); Serial.print(f); Serial.print(" Hz ("); Serial.print(DISPLAY_ROWS); Serial.println(" rows)");
+      Serial.print("f_line:  "); Serial.print(f); Serial.print(" Hz ("); Serial.print(MAX_BRIGHTNESS); Serial.println(" brightness lvls)");
+      f = f / DISPLAY_ROWS;
+      Serial.print("f_refr:   "); Serial.print(f); Serial.print(" Hz ("); Serial.print(DISPLAY_ROWS); Serial.println(" rows)");
       serialConn = true;
     }
     check_displayEvent();
