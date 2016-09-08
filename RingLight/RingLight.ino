@@ -19,8 +19,10 @@
 //#define visible_signals
 #define signal_duration_ms 50
 
-#define MAX_BRIGHTNESS          125
-#define TIMER1_TOP              (62-1) // @2MHz (PRESCALE_BY_8) this gives 2000/(TIMER1_TOP+1) KHz
+#define MAX_BRIGHTNESS          16
+#define TIMER1_TOP              (80-1) // @2MHz (PRESCALE_BY_8) this gives 2000/(TIMER1_TOP+1) KHz
+#define DISPLAY_COLUMNS         (4*8)
+#define DISPLAY_ROWS            8
 
 void pulseXXX(int pin, bool active_high) {
 #ifdef visible_signals
@@ -469,7 +471,7 @@ volatile bool     timer1_time_req = false;
 volatile bool     pending_displayEvent = false;
 volatile uint16_t missed_displayEvents = 0;
 
-typedef volatile byte displayBuffer_t[24];
+typedef volatile byte displayBuffer_t[DISPLAY_COLUMNS*DISPLAY_ROWS];
 displayBuffer_t displayBufferA, displayBufferB;
 
 typedef volatile byte* displayBufferPtr_t;
@@ -480,6 +482,7 @@ ISR(TIMER1_COMPA_vect) {
   static uint16_t halfMicros = 0; // assuming TIMER1 @2MHz (PRESCALE_BY_8)
   static uint32_t milliseconds_private = 0;
   static uint16_t pwm_tick = MAX_BRIGHTNESS;
+  static byte     row = DISPLAY_ROWS;
   static uint32_t t_avg_private;
 
   halfMicros += (TIMER1_TOP+1);
@@ -491,8 +494,29 @@ ISR(TIMER1_COMPA_vect) {
     milliseconds = milliseconds_private;  
     milliseconds_req = false;
   }
-
-  byte i = sizeof(displayBuffer_t);
+  
+  if (++pwm_tick >= MAX_BRIGHTNESS) {
+    if (++row >= DISPLAY_ROWS) {
+      row = 0;
+      if (!pending_displayEvent) {
+        displayBufferPtr_t temp = frontBuffer;
+        frontBuffer = backBuffer;
+        backBuffer = temp;
+        milliseconds = milliseconds_private;
+        pending_displayEvent = true;
+      } else {
+        missed_displayEvents++;
+      }
+    }
+    if (timer1_time_req) {
+      timer1_time = t_avg_private / MAX_BRIGHTNESS;
+      timer1_time_req = false;
+    }
+    t_avg_private = 0;
+    pwm_tick = 0;
+  }
+  
+  byte i = DISPLAY_COLUMNS;
 
 /*
   do {
@@ -507,7 +531,7 @@ ISR(TIMER1_COMPA_vect) {
   pulse_latch(); // transfer to outputs
 */
 
-  displayBufferPtr_t bufEnd = frontBuffer + sizeof(displayBuffer_t);
+  displayBufferPtr_t rowEnd = frontBuffer + ((row+1) * DISPLAY_COLUMNS);
   asm volatile("                            ; cycles  // comment                        \n"
       "         rjmp pwm_tick_loop0         ; 2       // assuming data_bit is 0 initially \n"
       "pwm_zeroBit:                                                                     \n"
@@ -544,7 +568,7 @@ ISR(TIMER1_COMPA_vect) {
       "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
       "         cbi  %[port], %[latch_bit]  ; 2       // STCP LO                        \n"
       : [i]         "+r"  (i), // "r" means any register
-                    "+e"  (bufEnd) // %a1
+                    "+e"  (rowEnd) // %a1
       : [tick]      "r"   (pwm_tick), 
         [port]      "I"   (_SFR_IO_ADDR(PORTD)),
         [data_bit]  "I"   (dataBit),
@@ -552,27 +576,7 @@ ISR(TIMER1_COMPA_vect) {
         [latch_bit] "I"   (latchBit)
   );
   
-  if (pwm_tick == 0) {
-    t_avg_private += TCNT1;
-  }
-  
-  if (++pwm_tick >= MAX_BRIGHTNESS) {
-    if (!pending_displayEvent) {
-      displayBufferPtr_t temp = frontBuffer;
-      frontBuffer = backBuffer;
-      backBuffer = temp;
-      milliseconds = milliseconds_private;
-      pending_displayEvent = true;
-    } else {
-      missed_displayEvents++;
-    }
-    if (timer1_time_req) {
-      timer1_time = t_avg_private;// / (pwm_tick - 1);
-      timer1_time_req = false;
-    }
-    t_avg_private = 0;
-    pwm_tick = 0;
-  }
+  t_avg_private += TCNT1;
 }
 
 
@@ -604,6 +608,7 @@ void doAnimations(uint32_t ms, volatile byte *buf) {
       }
       animationTick = 0;
       bitsToBuf(currentState, buf, 16);
+      bitsToBuf(brightness, buf + 16, 8);
     } 
 }
 
