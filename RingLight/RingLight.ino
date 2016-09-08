@@ -19,8 +19,8 @@
 //#define visible_signals
 #define signal_duration_ms 50
 
-#define MAX_BRIGHTNESS 125
-
+#define MAX_BRIGHTNESS          125
+#define TIMER1_TOP              (62-1) // @2MHz (PRESCALE_BY_8) this gives 2000/(TIMER1_TOP+1) KHz
 
 void pulseXXX(int pin, bool active_high) {
 #ifdef visible_signals
@@ -126,7 +126,7 @@ void configure_interrupts(void) {
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                          // TIMER1 CTC mode ("Clear Timer on Compare")
   TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | TIMER1_PRESCALE_BY_8;   // TIMER1 CTC mode @ 2MHz
   TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
-  OCR1A  = (62) - 1;   // compare match register: interrupt every 312.5 µs ~> 3.2 KHz (32 brightness levels, refresh-rate 100Hz)
+  OCR1A  = TIMER1_TOP;   // compare match register: interrupt every (TIMER1_TOP+1)/2 µs ~> 2000/(TIMER1_TOP+1) KHz
   TCNT1  = 0;
 /* there is no TIMER2 on the Atmega32uXX
   TCCR2 = 0 | TIMER2_PRESCALE_BY_8; // TIMER2 in normal mode @ 2MHz / 0.5µs period (overflow after 128 µs)
@@ -481,12 +481,21 @@ void bitsToBuf(uint16_t bits, volatile byte *buf, byte bitCount) {
 
 ISR(TIMER1_COMPA_vect) {
   static uint32_t milliseconds_private = 0;
-  static byte millisQuarters = 0;
-  static byte ticks = 0;
+  static uint16_t halfMicros = 0; // assuming TIMER1 @2MHz (PRESCALE_BY_8)
   static uint16_t pwm_tick = MAX_BRIGHTNESS;
   static uint32_t animationTick = 0;
   static uint16_t currentState;
   static uint32_t t_avg_private;
+
+  halfMicros += (TIMER1_TOP+1);
+  if (halfMicros >= 2000) {
+    halfMicros -= 2000;
+    milliseconds_private++;
+  }
+  if (milliseconds_req) {
+    milliseconds = milliseconds_private;  
+    milliseconds_req = false;
+  }
 
   byte i = sizeof(displayBuffer_t);
 
@@ -551,20 +560,7 @@ ISR(TIMER1_COMPA_vect) {
   if (pwm_tick == 0) {
     t_avg_private += TCNT1;
   }
-  
-  if (++ticks == 4) {
-    ticks = 0;
-    if (++millisQuarters == 4) {
-      millisQuarters = 0;
-      milliseconds_private += 2;  
-    } else {
-      milliseconds_private += 1;
-    }
-  }
-  if (milliseconds_req) {
-    milliseconds = milliseconds_private;  
-    milliseconds_req = false;
-  }
+
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
     if (timer1_time_req) {
