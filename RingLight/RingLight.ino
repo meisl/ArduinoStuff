@@ -20,7 +20,7 @@
 #define signal_duration_ms 50
 
 #define MAX_BRIGHTNESS          16
-#define TIMER1_TOP              (80-1) // @2MHz (PRESCALE_BY_8) this gives 2000/(TIMER1_TOP+1) KHz
+#define TIMER1_TOP              (80-1) // @2MHz (PRESCALE_BY_8) this gives 2000/(TIMER1_TOP+1) KHz PWM frequency
 #define DISPLAY_COLUMNS         (4*8)
 #define DISPLAY_ROWS            8
 
@@ -731,7 +731,12 @@ bool serialConn = false;
 void loop() {
   if (Serial) {
     if (!serialConn) { // greet if reconnected
-      Serial.println("Hi there!");
+      float f = 2000/(TIMER1_TOP+1);
+      Serial.print(" f_PWM:  "); Serial.print(f); Serial.println(" KHz");
+      f /= MAX_BRIGHTNESS;
+      Serial.print("f_line:   "); Serial.print(f); Serial.print(" KHz ("); Serial.print(MAX_BRIGHTNESS); Serial.println(" brightness lvls)");
+      f = f * 1000 / DISPLAY_ROWS;
+      Serial.print("f_refr: "); Serial.print(f); Serial.print(" Hz ("); Serial.print(DISPLAY_ROWS); Serial.println(" rows)");
       serialConn = true;
     }
     check_displayEvent();
