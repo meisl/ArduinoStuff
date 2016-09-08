@@ -19,8 +19,12 @@
 //#define visible_signals
 #define signal_duration_ms 50
 
-#define MAX_BRIGHTNESS          16
-#define TIMER1_TOP              (77-1) // @2MHz (PRESCALE_BY_8) this gives 2000/(TIMER1_TOP+1) KHz PWM frequency
+#define MAX_BRIGHTNESS          15  // must be odd!
+#define BRIGHTNESS_LEVELS       (MAX_BRIGHTNESS + 1)
+#define TIMER1_TOP_DELTA        (MAX_BRIGHTNESS * 2)
+#define TIMER1_TOP_MIN          (90-1) // @2MHz (PRESCALE_BY_8) this gives 2000/(TIMER1_TOP+1) KHz PWM frequency
+#define TIMER1_TOP_MAX          (TIMER1_TOP_MIN + TIMER1_TOP_DELTA)
+#define TIMER1_TOP              ((TIMER1_TOP_MIN + TIMER1_TOP_MAX) >> 1) // center between TIMER1_TOP_MIN and TIMER1_TOP_MAX
 #define DISPLAY_COLUMNS         (4*8)
 #define DISPLAY_ROWS            8
 
@@ -86,17 +90,17 @@ void pulseXXX(int pin, bool active_high) {
 
 
 // =8/21/53
-#define setBit(bit) asm volatile("sbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bit))
-#define clrBit(bit) asm volatile("cbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bit))
-#define pulseBitH(bit) setBit(bit); clrBit(bit);
-#define pulseBitL(bit) clrBit(bit); setBit(bit);
-#define pulse_clear() pulseBitL(clearBit) // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
-#define pulse_latch() pulseBitH(latchBit) // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
-#define pulse_clock() pulseBitH(clockBit) // rising edge here shifts in the bit currently present at DS; leaves clockPin LOW
-#define enable_on()  setBit(enableBit) // active-hi
-#define enable_off() clrBit(enableBit) // -"-
-#define set_data()   setBit(dataBit)
-#define clr_data()   clrBit(dataBit)
+#define setBit(bitNr)     asm volatile("sbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bitNr))
+#define clrBit(bitNr)     asm volatile("cbi %[port], %[bitnr]   " : : [port] "I" (_SFR_IO_ADDR(PORTD)), [bitnr] "I" (bitNr))
+#define pulseBitH(bitNr)  setBit(bitNr); clrBit(bitNr)
+#define pulseBitL(bitNr)  clrBit(bitNr); setBit(bitNr)
+#define pulse_clear()     pulseBitL(clearBit) // falling edge here clears the shiftregs; leaves clearPin HIGH (it's active-low)
+#define pulse_latch()     pulseBitH(latchBit) // rising edge here transfers shifted-in data to outputs; leaves latchPin LOW
+#define pulse_clock()     pulseBitH(clockBit) // rising edge here shifts in the bit currently present at DS; leaves clockPin LOW
+#define enable_on()       setBit(enableBit) // active-hi
+#define enable_off()      clrBit(enableBit) // -"-
+#define set_data()        setBit(dataBit)
+#define clr_data()        clrBit(dataBit)
 
 
 void reset595() {
@@ -127,9 +131,9 @@ void configure_interrupts(void) {
   // Timer 1 (16 bit)
   TCCR1A =  ((1 << WGM11) & 0x00) | ((1 << WGM10) & 0x00);                          // TIMER1 CTC mode ("Clear Timer on Compare")
   TCCR1B =  ((1 << WGM13) & 0x00) | ((1 << WGM12) & 0xFF) | TIMER1_PRESCALE_BY_8;   // TIMER1 CTC mode @ 2MHz
-  TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
-  OCR1A  = TIMER1_TOP;   // compare match register: interrupt every (TIMER1_TOP+1)/2 µs ~> 2000/(TIMER1_TOP+1) KHz
+  OCR1A  = TIMER1_TOP_MIN;   // compare match register: interrupt every (TIMER1_TOP+1)/2 µs ~> 2000/(TIMER1_TOP+1) KHz
   TCNT1  = 0;
+  TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
 /* there is no TIMER2 on the Atmega32uXX
   TCCR2 = 0 | TIMER2_PRESCALE_BY_8; // TIMER2 in normal mode @ 2MHz / 0.5µs period (overflow after 128 µs)
   TIMSK2 &= ~(_BV(TOIE2) | _BV(OCIE2A) | _BV(OCIE2B)); // no interrupts from TIMER2
@@ -478,6 +482,28 @@ typedef volatile byte* displayBufferPtr_t;
 displayBufferPtr_t frontBuffer = displayBufferA;
 displayBufferPtr_t backBuffer  = displayBufferB;
 
+volatile uint16_t pwm_durations[BRIGHTNESS_LEVELS] = {
+  TIMER1_TOP - ((TIMER1_TOP_DELTA * 8) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP - ((TIMER1_TOP_DELTA * 7) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP - ((TIMER1_TOP_DELTA * 6) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP - ((TIMER1_TOP_DELTA * 5) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP - ((TIMER1_TOP_DELTA * 4) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP - ((TIMER1_TOP_DELTA * 3) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP - ((TIMER1_TOP_DELTA * 2) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP - ((TIMER1_TOP_DELTA * 1) / BRIGHTNESS_LEVELS),
+  // <--- center
+  TIMER1_TOP + ((TIMER1_TOP_DELTA * 1) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP + ((TIMER1_TOP_DELTA * 2) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP + ((TIMER1_TOP_DELTA * 3) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP + ((TIMER1_TOP_DELTA * 4) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP + ((TIMER1_TOP_DELTA * 5) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP + ((TIMER1_TOP_DELTA * 6) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP + ((TIMER1_TOP_DELTA * 7) / BRIGHTNESS_LEVELS),
+  TIMER1_TOP + ((TIMER1_TOP_DELTA * 8) / BRIGHTNESS_LEVELS),
+};
+
+#define switch_row(row) enable_off(); /* TODO: actually switch to next row */ pulse_latch(); enable_on()
+
 ISR(TIMER1_COMPA_vect) {
   static uint16_t halfMicros = 0; // assuming TIMER1 @2MHz (PRESCALE_BY_8)
   static uint32_t milliseconds_private = 0;
@@ -485,13 +511,13 @@ ISR(TIMER1_COMPA_vect) {
   static byte     row = DISPLAY_ROWS;
   static uint32_t t_avg_private;
 
-  halfMicros += (TIMER1_TOP+1);
+  halfMicros += (OCR1A+1);
   if (halfMicros >= 2000) {
     halfMicros -= 2000;
     milliseconds_private++;
   }
   if (milliseconds_req) {
-    milliseconds = milliseconds_private;  
+    milliseconds = milliseconds_private;
     milliseconds_req = false;
   }
   
@@ -517,7 +543,6 @@ ISR(TIMER1_COMPA_vect) {
   }
   
   byte i = DISPLAY_COLUMNS;
-
 /*
   do {
     i--;
@@ -564,17 +589,20 @@ ISR(TIMER1_COMPA_vect) {
       "pwm_tick_end_clear_data:                                                         \n"
       "         cbi  %[port], %[data_bit]   ; 2       // ensure data bit == 0 in the end  \n"
       "pwm_tick_end:                                                                    \n"
-      "         sbi  %[port], %[latch_bit]  ; 2       // STCP HI                        \n"
       "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
-      "         cbi  %[port], %[latch_bit]  ; 2       // STCP LO                        \n"
       : [i]         "+r"  (i), // "r" means any register
                     "+e"  (rowEnd) // %a1
       : [tick]      "r"   (pwm_tick), 
         [port]      "I"   (_SFR_IO_ADDR(PORTD)),
         [data_bit]  "I"   (dataBit),
-        [clock_bit] "I"   (clockBit),
-        [latch_bit] "I"   (latchBit)
+        [clock_bit] "I"   (clockBit)
   );
+  switch_row(row);  // latch pin is pulsed in here
+
+  TIMSK1 &= ~(1 << OCIE1A);  // disable compare interrupt for TIMER1
+  //t_avg_private += TCNT1;
+  OCR1A = pwm_durations[pwm_tick];
+  TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
   
   t_avg_private += TCNT1;
 }
@@ -738,10 +766,11 @@ bool serialConn = false;
 void loop() {
   if (Serial) {
     if (!serialConn) { // greet if reconnected
+      Serial.print("TI1_TOP: "); Serial.print(TIMER1_TOP_MIN); Serial.print(".."); Serial.println(TIMER1_TOP_MAX);
       float f = 2000000.0/(TIMER1_TOP+1);
       Serial.print(" f_PWM: "); Serial.print(f); Serial.println(" Hz");
-      f /= MAX_BRIGHTNESS;
-      Serial.print("f_line:  "); Serial.print(f); Serial.print(" Hz ("); Serial.print(MAX_BRIGHTNESS); Serial.println(" brightness lvls)");
+      f /= BRIGHTNESS_LEVELS;
+      Serial.print("f_line:  "); Serial.print(f); Serial.print(" Hz ("); Serial.print(BRIGHTNESS_LEVELS); Serial.println(" brightness lvls)");
       f = f / DISPLAY_ROWS;
       Serial.print("f_refr:   "); Serial.print(f); Serial.print(" Hz ("); Serial.print(DISPLAY_ROWS); Serial.println(" rows)");
       serialConn = true;
