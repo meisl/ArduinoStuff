@@ -27,6 +27,7 @@
 #define TIMER1_TOP              ((TIMER1_TOP_MIN + TIMER1_TOP_MAX) >> 1) // center between TIMER1_TOP_MIN and TIMER1_TOP_MAX
 #define DISPLAY_COLUMNS         (4*8)
 #define DISPLAY_ROWS            8
+volatile byte rowCount = DISPLAY_ROWS;
 
 void pulseXXX(int pin, bool active_high) {
 #ifdef visible_signals
@@ -508,7 +509,7 @@ ISR(TIMER1_COMPA_vect) {
   static uint16_t halfMicros = 0; // assuming TIMER1 @2MHz (PRESCALE_BY_8)
   static uint32_t milliseconds_private = 0;
   static uint16_t pwm_tick = MAX_BRIGHTNESS;
-  static byte     row = DISPLAY_ROWS;
+  static byte     row = 1; // ranges from 1..rowCount
   static uint32_t t_avg_private;
 
   halfMicros += (OCR1A+1);
@@ -522,8 +523,8 @@ ISR(TIMER1_COMPA_vect) {
   }
   
   if (++pwm_tick >= MAX_BRIGHTNESS) {
-    if (++row >= DISPLAY_ROWS) {
-      row = 0;
+    if (--row == 0) {
+      row = rowCount;
       if (!pending_displayEvent) {
         displayBufferPtr_t temp = frontBuffer;
         frontBuffer = backBuffer;
@@ -541,64 +542,52 @@ ISR(TIMER1_COMPA_vect) {
     t_avg_private = 0;
     pwm_tick = 0;
   }
+  if (row <= DISPLAY_ROWS) { // rows above DISPLAY_ROWS+1 are "virtual", for reducing the overall brightness
+    byte i = DISPLAY_COLUMNS;
+    displayBufferPtr_t rowEnd = frontBuffer + (row * DISPLAY_COLUMNS);
+    asm volatile("                            ; cycles  // comment                        \n"
+        "         rjmp pwm_tick_loop0         ; 2       // assuming data_bit is 0 initially \n"
+        "pwm_zeroBit:                                                                     \n"
+        "         cbi  %[port], %[data_bit]   ; 2       // clear data bit                 \n"
+        "         sbi  %[port], %[clock_bit]  ; 2       // SHCP HI                        \n"
+        "         dec  %[i]                   ; 1       // next?                          \n" 
+        "         breq pwm_tick_end           ; 1/2     // stop if i == 0                 \n"
+        "pwm_tick_loop0:                      ; -       // last data bit was a 0          \n"
+        "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO (bogus on first iteration - doesn't matter) \n"
+        "         ld   __tmp_reg__, -%a1      ; 2       // fetch value                    \n" 
+        "         cp   %[tick], __tmp_reg__   ; 1       // tick < value ?                 \n"
+        "         brlo pwm_oneBit             ; 1/2     // if so shift out a 1            \n"
+        "         sbi  %[port], %[clock_bit]  ; 2       // else data bit is still 0 -> SHCP HI \n"
+        "         dec  %[i]                   ; 1       // next?                          \n" 
+        "         brne pwm_tick_loop0         ; 1/2     // repeat if %[i] still > 0       \n"
+        "         rjmp pwm_tick_end           ; 2                                         \n"
+        "pwm_oneBit:                                                                      \n"
+        "         sbi  %[port], %[data_bit]   ; 2                                         \n"
+        "         sbi  %[port], %[clock_bit]  ; 2       // SHCP HI                        \n"
+        "         dec  %[i]                   ; 1       // next?                          \n" 
+        "         breq pwm_tick_end_clear_data; 2       // stop if i==0                   \n"
+        "pwm_tick_loop1:                      ; -       // last data bit was a 1          \n"
+        "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
+        "         ld   __tmp_reg__, -%a1      ; 2       // fetch value                    \n" 
+        "         cp   %[tick], __tmp_reg__   ; 1       // tick >= value ?                \n"
+        "         brsh pwm_zeroBit            ; 1/2     // if so shift out a 0            \n"
+        "         sbi  %[port], %[clock_bit]  ; 2       // else data bit is still 1 -> SHCP HI \n"
+        "         dec  %[i]                   ; 1       // next?                          \n" 
+        "         brne pwm_tick_loop1         ; 1/2     // repeat if %[i] still > 0       \n"
+        "pwm_tick_end_clear_data:                                                         \n"
+        "         cbi  %[port], %[data_bit]   ; 2       // ensure data bit == 0 in the end  \n"
+        "pwm_tick_end:                                                                    \n"
+        "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
+        : [i]         "+r"  (i), // "r" means any register
+                      "+e"  (rowEnd) // %a1
+        : [tick]      "r"   (pwm_tick), 
+          [port]      "I"   (_SFR_IO_ADDR(PORTD)),
+          [data_bit]  "I"   (dataBit),
+          [clock_bit] "I"   (clockBit)
+    );
+    switch_row(row);  // latch pin is pulsed in here
+  }
   
-  byte i = DISPLAY_COLUMNS;
-/*
-  do {
-    i--;
-    if (pwm_tick < displayBufferA[i]) {
-      set_data();
-    } else {
-      clr_data();
-    }
-    pulse_clock();
-  } while (i > 0);
-  pulse_latch(); // transfer to outputs
-*/
-
-  displayBufferPtr_t rowEnd = frontBuffer + ((row+1) * DISPLAY_COLUMNS);
-  asm volatile("                            ; cycles  // comment                        \n"
-      "         rjmp pwm_tick_loop0         ; 2       // assuming data_bit is 0 initially \n"
-      "pwm_zeroBit:                                                                     \n"
-      "         cbi  %[port], %[data_bit]   ; 2       // clear data bit                 \n"
-      "         sbi  %[port], %[clock_bit]  ; 2       // SHCP HI                        \n"
-      "         dec  %[i]                   ; 1       // next?                          \n" 
-      "         breq pwm_tick_end           ; 1/2     // stop if i == 0                 \n"
-      "pwm_tick_loop0:                      ; -       // last data bit was a 0          \n"
-      "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO (bogus on first iteration - doesn't matter) \n"
-      "         ld   __tmp_reg__, -%a1      ; 2       // fetch value                    \n" 
-      "         cp   %[tick], __tmp_reg__   ; 1       // tick < value ?                 \n"
-      "         brlo pwm_oneBit             ; 1/2     // if so shift out a 1            \n"
-      "         sbi  %[port], %[clock_bit]  ; 2       // else data bit is still 0 -> SHCP HI \n"
-      "         dec  %[i]                   ; 1       // next?                          \n" 
-      "         brne pwm_tick_loop0         ; 1/2     // repeat if %[i] still > 0       \n"
-      "         rjmp pwm_tick_end           ; 2                                         \n"
-      "pwm_oneBit:                                                                      \n"
-      "         sbi  %[port], %[data_bit]   ; 2                                         \n"
-      "         sbi  %[port], %[clock_bit]  ; 2       // SHCP HI                        \n"
-      "         dec  %[i]                   ; 1       // next?                          \n" 
-      "         breq pwm_tick_end_clear_data; 2       // stop if i==0                   \n"
-      "pwm_tick_loop1:                      ; -       // last data bit was a 1          \n"
-      "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
-      "         ld   __tmp_reg__, -%a1      ; 2       // fetch value                    \n" 
-      "         cp   %[tick], __tmp_reg__   ; 1       // tick >= value ?                \n"
-      "         brsh pwm_zeroBit            ; 1/2     // if so shift out a 0            \n"
-      "         sbi  %[port], %[clock_bit]  ; 2       // else data bit is still 1 -> SHCP HI \n"
-      "         dec  %[i]                   ; 1       // next?                          \n" 
-      "         brne pwm_tick_loop1         ; 1/2     // repeat if %[i] still > 0       \n"
-      "pwm_tick_end_clear_data:                                                         \n"
-      "         cbi  %[port], %[data_bit]   ; 2       // ensure data bit == 0 in the end  \n"
-      "pwm_tick_end:                                                                    \n"
-      "         cbi  %[port], %[clock_bit]  ; 2       // SHCP LO                        \n"
-      : [i]         "+r"  (i), // "r" means any register
-                    "+e"  (rowEnd) // %a1
-      : [tick]      "r"   (pwm_tick), 
-        [port]      "I"   (_SFR_IO_ADDR(PORTD)),
-        [data_bit]  "I"   (dataBit),
-        [clock_bit] "I"   (clockBit)
-  );
-  switch_row(row);  // latch pin is pulsed in here
-
   TIMSK1 &= ~(1 << OCIE1A);  // disable compare interrupt for TIMER1
   //t_avg_private += TCNT1;
   OCR1A = pwm_durations[pwm_tick];
