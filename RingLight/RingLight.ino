@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <EEPROM.h>
 
 // The pins used to communicate with the shift registers (74HC595)
 #define enablePin  3 // connect OE (which is active-low) of 74HC595 to collector of an NPN, and pin 3 with a 10K to the base (emitter to GND)
@@ -184,6 +185,7 @@ enum { // node type
 #define CMD_FLIP        9
 #define CMD_TIME       10
 #define CMD_ROWCOUNT   11
+#define CMD_EEPROM     12
 
 
 struct node_t {
@@ -336,6 +338,10 @@ struct node_t *parseCommand() {
               break;
             case 'f':
               ast.value.c = CMD_FLIP;
+              state = STATE_SKIP_TIL_EOL;
+              break;
+            case 'e':
+              ast.value.c = CMD_EEPROM;
               state = STATE_SKIP_TIL_EOL;
               break;
             case 't':
@@ -550,9 +556,9 @@ ISR(TIMER1_COMPA_vect) {
       timer1_time_max = t_max_private;
       timer1_time_req = false;
     }
-    t_min_private = 0xFFFF;
     t_avg_private = 0;
-    t_max_private = 0;
+    //t_min_private = 0xFFFF;
+    //t_max_private = 0;
     pwm_tick = 0;
   }
   if (row > DISPLAY_ROWS) { // rows above DISPLAY_ROWS are "virtual", for reducing the overall brightness
@@ -678,7 +684,7 @@ void doCommands() {
     int n = ast->childCount;
     node_t *a0 = (n > 0) ? &(ast->children->node) : NULL;
     uint32_t t1, t2;
-    uint16_t tmin, tavg, tmax;
+    uint16_t tmin, tavg, tmax, i;
     switch (ast->value.c) {
       case CMD_BRIGHTNESS:
         if (a0) {
@@ -758,6 +764,21 @@ void doCommands() {
         Serial.print("flip: ");
         Serial.println(flip ? "on" : "off");
         break;
+      case CMD_EEPROM:
+        //EEPROM.put(0, 0xEFBE);
+        Serial.print(EEPROM.length()); Serial.println(" bytes EEPROM:");
+        i = 0;
+        Serial.print("0");
+        for (t2 = 0; t2 < 8; t2++) {
+          Serial.print(i, HEX);
+          Serial.print(": ");
+          for (t1 = 0; t1 < 16; t1++) {
+            Serial.print(EEPROM[i++], HEX);
+            Serial.print(" ");
+          }
+          Serial.println();
+        }
+        break;
       case CMD_TIME:
         t1 = millis();
         t2 = millis2();
@@ -793,7 +814,9 @@ void loop() {
       float f = 2000000.0/(TIMER1_TOP+1);
       Serial.print(" f_PWM: "); Serial.print(f); Serial.println(" Hz");
       f /= BRIGHTNESS_LEVELS;
-      Serial.print("f_line:  "); Serial.print(f); Serial.print(" Hz ("); Serial.print(BRIGHTNESS_LEVELS); Serial.println(" brightness lvls)");
+      Serial.print("f_line:  "); Serial.print(f); Serial.print(" Hz ("); 
+      Serial.print(DISPLAY_COLUMNS); Serial.print(" columns, ");
+      Serial.print(BRIGHTNESS_LEVELS); Serial.println(" brightness lvls)");
       f = f / DISPLAY_ROWS;
       Serial.print("f_refr:   "); Serial.print(f); Serial.print(" Hz ("); Serial.print(DISPLAY_ROWS); Serial.println(" rows)");
       serialConn = true;
