@@ -684,7 +684,9 @@ void doCommands() {
     int n = ast->childCount;
     node_t *a0 = (n > 0) ? &(ast->children->node) : NULL;
     uint32_t t1, t2;
-    uint16_t tmin, tavg, tmax, i;
+    uint16_t tmin, tavg, tmax;
+    int i;
+    char sbuf[96];
     switch (ast->value.c) {
       case CMD_BRIGHTNESS:
         if (a0) {
@@ -765,18 +767,26 @@ void doCommands() {
         Serial.println(flip ? "on" : "off");
         break;
       case CMD_EEPROM:
-        //EEPROM.put(0, 0xEFBE);
-        Serial.print(EEPROM.length()); Serial.println(" bytes EEPROM:");
+        for (i = 0; i < 256; i++) {
+          EEPROM.put(i, (byte)i);
+        }
+        n = EEPROM.length();
+        snprintf(sbuf, sizeof(sbuf), "%d bytes of EEPROM:", n);
+        Serial.println(sbuf);
         i = 0;
-        Serial.print("0");
-        for (t2 = 0; t2 < 8; t2++) {
-          Serial.print(i, HEX);
-          Serial.print(": ");
-          for (t1 = 0; t1 < 16; t1++) {
-            Serial.print(EEPROM[i++], HEX);
-            Serial.print(" ");
+        while (i < n) {
+          snprintf(sbuf, sizeof(sbuf), "%04X:%48s  %16s", i, "", "");
+          byte j = 5;
+          byte k = 6 + 16*3 + 2;
+          byte v;
+          for (t1 = 0; (t1 < 16) && (i < n); t1++) {
+            v = EEPROM[i++];
+            snprintf(&sbuf[j], 4, " %02X", v);
+            j += 3;
+            sbuf[k++] = isPrintable(v) ? v : 0x90;
           }
-          Serial.println();
+          sbuf[j] = ' ';
+          Serial.println(sbuf);
         }
         break;
       case CMD_TIME:
