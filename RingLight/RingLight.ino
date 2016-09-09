@@ -1,5 +1,6 @@
-#include <Arduino.h>
-#include <EEPROM.h>
+#include "Arduino.h"  // could use <angle brackets> instead of "double quotes"
+#include "Command.h"  // MUST use "double quotes" for this
+#include "EEPROM.h"   // could use <angle brackets> instead of "double quotes"
 
 // The pins used to communicate with the shift registers (74HC595)
 #define enablePin  3 // connect OE (which is active-low) of 74HC595 to collector of an NPN, and pin 3 with a 10K to the base (emitter to GND)
@@ -166,6 +167,14 @@ void setup() {
   Serial.println("setup done");
 }
 
+volatile uint16_t brightness = 1;
+volatile uint32_t animationDelay = 5; // in milliseconds
+volatile bool     invert = false;
+volatile byte     rotate = 0;
+volatile bool     mirror = false; // mirror at vertical axis (does not depend on rotate)
+volatile bool     flip = false;   // mirror at 0-axis (depends on rotate)
+
+
 
 enum { // node type
   TYPE_CMD   = 0,
@@ -187,6 +196,71 @@ enum { // node type
 #define CMD_ROWCOUNT   11
 #define CMD_EEPROM     12
 
+
+
+cmd_t cmd_invert = cmd_t(
+  CMD_INVERT,       // id  
+  'i',              // chr
+  "invert",         // name
+  &invert           // valuePtr
+);
+cmd_t cmd_flip = {
+  CMD_FLIP,         // id  
+  'f',              // chr
+  "flip",           // name
+  &flip             // valuePtr
+};
+cmd_t cmd_mirror = {
+  CMD_MIRROR,       // id  
+  'm',              // chr
+  "mirror",         // name
+  &mirror           // valuePtr
+};
+cmd_t cmd_rotate = cmd_t(
+  CMD_ROTATE,       // id  
+  'r',              // chr
+  "rotate",         // name
+  &rotate,          // valuePtr
+  0, 15,            // min, max
+  CMDFLAG_WRAPAROUND  // additional flags
+);
+
+void dumpEEPROM() {
+    const byte bytes_per_line = 16;
+    const char unprintable_replacement = 0x90;
+    char sbuf[4 + 2 + 3*bytes_per_line + 2 + bytes_per_line + 1];
+    uint16_t n = EEPROM.length();
+    uint16_t i = 0;
+    /*
+    for (i = 0; i < 256; i++) {
+      EEPROM.put(i, (byte)i);
+    }
+    */
+    snprintf(sbuf, sizeof(sbuf), "%d bytes of EEPROM:", n);
+    Serial.println(sbuf);
+    while (i < n) {
+      snprintf(sbuf, sizeof(sbuf), "%04X: ", i);
+      byte j = 5;
+      byte k = 5 + bytes_per_line*3 + 2;
+      for (byte x = bytes_per_line; (x > 0) && (i < n); x--) {
+        byte v = EEPROM[i++];
+        snprintf(&sbuf[j], 4, " %02X", v);
+        j += 3;
+        sbuf[k++] = isPrintable(v) ? v : unprintable_replacement;
+      }
+      sbuf[j]   = ' '; // overwrite the zero byte from snprintf (after last hex byte in line)
+      sbuf[j+1] = ' '; // put another space between hex and ascii values
+      sbuf[k]   = 0;   // terminate the whole line string
+      Serial.println(sbuf);
+    }  
+}
+
+cmd_t cmd_eeprom = cmd_t(
+  CMD_EEPROM,       // id  
+  'e',              // chr
+  "EEPROM dump",    // name
+  &dumpEEPROM
+);
 
 struct node_t {
   byte type;
@@ -471,13 +545,6 @@ volatile animFuncPtr animations[] = {
 volatile uint16_t animStates[animationCount];
 
 volatile byte     currentAnim = animationCount - 1;
-volatile uint16_t brightness = 1;
-volatile uint32_t animationDelay = 5; // in milliseconds
-volatile bool     invert = false;
-volatile byte     rotate = 0;
-volatile bool     mirror = false; // mirror at vertical axis (does not depend on rotate)
-volatile bool     flip = false;   // mirror at 0-axis (depends on rotate)
-
 volatile uint32_t milliseconds = 0;
 volatile bool     milliseconds_req = false;
 
@@ -685,8 +752,6 @@ void doCommands() {
     node_t *a0 = (n > 0) ? &(ast->children->node) : NULL;
     uint32_t t1, t2;
     uint16_t tmin, tavg, tmax;
-    int i;
-    char sbuf[96];
     switch (ast->value.c) {
       case CMD_BRIGHTNESS:
         if (a0) {
@@ -742,52 +807,25 @@ void doCommands() {
       case CMD_ROTATE:
         if (a0) {
           if (a0->type == TYPE_INT) {
-            rotate = a0->value.i;
+            cmd_rotate.set(a0->value.i);
           } else {
-            rotate += a0->value.i;
+            cmd_rotate.inc(a0->value.i);
           }
-          rotate &= 0x000F;
         }
-        Serial.print("rotate: ");
-        Serial.println(rotate);
+        cmd_rotate.report();
         break;
       case CMD_INVERT:
-        invert = !invert;
-        Serial.print("invert: ");
-        Serial.println(invert ? "on" : "off");
+        cmd_invert.toggle()->report();
         break;
       case CMD_MIRROR:
-        mirror = !mirror;
-        Serial.print("mirror: ");
-        Serial.println(mirror ? "on" : "off");
+        cmd_mirror.toggle()->report();
         break;
       case CMD_FLIP:
-        flip = !flip;
-        Serial.print("flip: ");
-        Serial.println(flip ? "on" : "off");
+        cmd_flip.toggle()->report();
+        //cmd_flip.report();
         break;
       case CMD_EEPROM:
-        for (i = 0; i < 256; i++) {
-          EEPROM.put(i, (byte)i);
-        }
-        n = EEPROM.length();
-        snprintf(sbuf, sizeof(sbuf), "%d bytes of EEPROM:", n);
-        Serial.println(sbuf);
-        i = 0;
-        while (i < n) {
-          snprintf(sbuf, sizeof(sbuf), "%04X:%48s  %16s", i, "", "");
-          byte j = 5;
-          byte k = 6 + 16*3 + 2;
-          byte v;
-          for (t1 = 0; (t1 < 16) && (i < n); t1++) {
-            v = EEPROM[i++];
-            snprintf(&sbuf[j], 4, " %02X", v);
-            j += 3;
-            sbuf[k++] = isPrintable(v) ? v : 0x90;
-          }
-          sbuf[j] = ' ';
-          Serial.println(sbuf);
-        }
+        cmd_eeprom();
         break;
       case CMD_TIME:
         t1 = millis();
