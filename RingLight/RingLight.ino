@@ -183,6 +183,7 @@ enum { // node type
 #define CMD_MIRROR      8
 #define CMD_FLIP        9
 #define CMD_TIME       10
+#define CMD_ROWCOUNT   11
 
 
 struct node_t {
@@ -307,6 +308,10 @@ struct node_t *parseCommand() {
           switch (ch) {
             case 'b':
               ast.value.c = CMD_BRIGHTNESS;
+              state = STATE_OPTIONAL_ARG;
+              break;
+            case 'p':
+              ast.value.c = CMD_ROWCOUNT;
               state = STATE_OPTIONAL_ARG;
               break;
             case 'd':
@@ -470,7 +475,9 @@ volatile bool     flip = false;   // mirror at 0-axis (depends on rotate)
 volatile uint32_t milliseconds = 0;
 volatile bool     milliseconds_req = false;
 
-volatile uint16_t timer1_time;
+volatile uint16_t timer1_time_avg;
+volatile uint16_t timer1_time_min;
+volatile uint16_t timer1_time_max;
 volatile bool     timer1_time_req = false;
 
 volatile bool     pending_displayEvent = false;
@@ -510,7 +517,9 @@ ISR(TIMER1_COMPA_vect) {
   static uint32_t milliseconds_private = 0;
   static uint16_t pwm_tick = MAX_BRIGHTNESS;
   static byte     row = 1; // ranges from 1..rowCount
-  static uint32_t t_avg_private;
+  static uint16_t t_min_private = 0xFFFF;
+  static uint32_t t_avg_private = 0;
+  static uint16_t t_max_private = 0;
 
   halfMicros += (OCR1A+1);
   if (halfMicros >= 2000) {
@@ -536,13 +545,19 @@ ISR(TIMER1_COMPA_vect) {
       }
     }
     if (timer1_time_req) {
-      timer1_time = t_avg_private / MAX_BRIGHTNESS;
+      timer1_time_avg = t_avg_private / MAX_BRIGHTNESS;
+      timer1_time_min = t_min_private;
+      timer1_time_max = t_max_private;
       timer1_time_req = false;
     }
+    t_min_private = 0xFFFF;
     t_avg_private = 0;
+    t_max_private = 0;
     pwm_tick = 0;
   }
-  if (row <= DISPLAY_ROWS) { // rows above DISPLAY_ROWS+1 are "virtual", for reducing the overall brightness
+  if (row > DISPLAY_ROWS) { // rows above DISPLAY_ROWS are "virtual", for reducing the overall brightness
+    enable_off();
+  } else {
     byte i = DISPLAY_COLUMNS;
     displayBufferPtr_t rowEnd = frontBuffer + (row * DISPLAY_COLUMNS);
     asm volatile("                            ; cycles  // comment                        \n"
@@ -592,8 +607,12 @@ ISR(TIMER1_COMPA_vect) {
   //t_avg_private += TCNT1;
   OCR1A = pwm_durations[pwm_tick];
   TIMSK1 |= (1 << OCIE1A);  // enable compare interrupt for TIMER1
+
+  uint16_t t = TCNT1;
   
-  t_avg_private += TCNT1;
+  t_avg_private += t;
+  t_min_private = min(t, t_min_private);
+  t_max_private = max(t, t_max_private);
 }
 
 
@@ -644,11 +663,13 @@ uint32_t millis2() {
   return milliseconds;  
 }
 
-uint16_t tm_timer1() {
+void tm_timer1(uint16_t *min, uint16_t *avg, uint16_t *max) {
   timer1_time_req = true;
   while (timer1_time_req) {
   }
-  return timer1_time;
+  *min = timer1_time_min;
+  *avg = timer1_time_avg;
+  *max = timer1_time_max;
 }
 
 void doCommands() {
@@ -657,7 +678,7 @@ void doCommands() {
     int n = ast->childCount;
     node_t *a0 = (n > 0) ? &(ast->children->node) : NULL;
     uint32_t t1, t2;
-    uint16_t t3;
+    uint16_t tmin, tavg, tmax;
     switch (ast->value.c) {
       case CMD_BRIGHTNESS:
         if (a0) {
@@ -671,6 +692,18 @@ void doCommands() {
         }
         Serial.print("brightness: ");
         Serial.println(brightness);
+        break;
+      case CMD_ROWCOUNT:
+        if (a0) {
+          if (a0->type == TYPE_INT) {
+            rowCount = a0->value.i;
+          } else {
+            rowCount += a0->value.i;
+          }
+          rowCount = constrain(rowCount, 1, 256);
+        }
+        Serial.print("rowCount: ");
+        Serial.println(rowCount);
         break;
       case CMD_ANIM:
         if (a0) {
@@ -728,7 +761,7 @@ void doCommands() {
       case CMD_TIME:
         t1 = millis();
         t2 = millis2();
-        t3 = tm_timer1();
+        tm_timer1(&tmin, &tavg, &tmax);
         Serial.print("time: ");
         Serial.print(t1);
         Serial.println(" ms");
@@ -736,8 +769,9 @@ void doCommands() {
         Serial.println(t2);
         Serial.print("      ");
         Serial.println((int32_t)(t2 - t1));
-        Serial.print("t_avg: ");
-        Serial.println(t3);
+        Serial.print("t_min: "); Serial.println(tmin);
+        Serial.print("t_avg: "); Serial.println(tavg);
+        Serial.print("t_max: "); Serial.println(tmax);
         Serial.print("missed: ");
         Serial.println(missed_displayEvents);
         break;
