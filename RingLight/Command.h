@@ -9,112 +9,117 @@
 #define CMDFLAG_HASLIMITS   _BV(2)
 #define CMDFLAG_CALLBACK    _BV(3)
 
-struct cmd_t {
-  const byte id;
-  const byte flags;
-  const char chr;
-  const char* name;
-  union {
-    volatile byte *_byte;
-    volatile bool *_bool;
-    volatile int  *_int;
-    void (*_func)();
-  } valuePtr;
-  int  vmin, vmax;
+typedef void (*CommandCallback)();
 
-   cmd_t(
-    const byte _id, 
-    const char _chr, 
-    const char* _name,
-    volatile bool* _valuePtr
-  ) : id(_id), flags(CMDFLAG_TOGGLE | CMDFLAG_HASLIMITS | CMDFLAG_WRAPAROUND), chr(_chr), name(_name), vmin(0), vmax(1) {
-    valuePtr._bool = _valuePtr;
-  }
+class CommandBase {
+  public:
+    CommandBase(const byte _id, const char _chr, const char* _name, const byte _flags) 
+    : id(_id), chr(_chr), name(_name), flags(_flags)
+    {}
 
-  template< typename T > cmd_t(
-    const byte _id, 
-    const char _chr, 
-    const char* _name,
-    T* _valuePtr,
-    const int _min,
-    const int _max,
-    const byte _flags
-  ) : id(_id), flags(_flags | CMDFLAG_HASLIMITS), chr(_chr), name(_name), vmin(_min), vmax(_max)
-  {
-    if (sizeof(T) == 1) {
-      valuePtr._byte = _valuePtr;  
-    } else if (sizeof(T) == 2) {
-      valuePtr._int = (int*)_valuePtr;  
+  protected:
+    const byte  id;
+    const char  chr;
+    const char* name;
+    const byte  flags;
+};
+
+class CallbackCommand : public CommandBase {
+  public:
+    CallbackCommand(const byte _id, const char _chr, const char* _name, CommandCallback _callback)
+    : CommandBase(_id, _chr, _name, CMDFLAG_CALLBACK), callback(_callback) {
     }
-  }
-
-  cmd_t(
-    const byte _id, 
-    const char _chr, 
-    const char* _name,
-    void (*_func)()
-  ) : id(_id), flags(CMDFLAG_CALLBACK), chr(_chr), name(_name)
-  {
-    valuePtr._func = _func;
-  }
 
   void operator()() {
-    if (flags & CMDFLAG_CALLBACK) {
-      return valuePtr._func();
-    }
+    callback();
   };
+  
+  protected:
+    CommandCallback callback;
+  
+};
 
-  cmd_t *toggle() {
-    if (flags & CMDFLAG_TOGGLE) {
-      inc(1);  
+template <typename T> class ValueCommand : public CommandBase {
+  public:
+    ValueCommand(
+      const byte _id, 
+      const char _chr, 
+      const char* _name, 
+      volatile T* _valuePtr, 
+      const byte _flags
+    ) : CommandBase(_id, _chr, _name, _flags), valuePtr(_valuePtr) {
     }
-    return this;
-  };
 
-  cmd_t *report() {
-    Serial.print(name);
-    Serial.print(": ");
-    if (flags & CMDFLAG_TOGGLE) {
-      Serial.println(*valuePtr._bool ? "on" : "off");
-    } else {
-      Serial.println(*valuePtr._int);  
+    ValueCommand(
+      const byte _id,
+      const char _chr,
+      const char* _name,
+      volatile T* _valuePtr,
+      T limitA,
+      T limitB,
+      const byte _flags
+    ) : CommandBase(_id, _chr, _name, _flags | CMDFLAG_HASLIMITS), valuePtr(_valuePtr) {
+      vmin = min(limitA, limitB);
+      vmax = max(limitA, limitB);
     }
-    return this;
-  };
-  template< typename T > T set(T v) {
-    if (flags & CMDFLAG_HASLIMITS) {
-      if (flags & CMDFLAG_WRAPAROUND) {
-        T delta = (T)vmax - (T)vmin + 1;
-        while (v > (T)vmax) {
-          v -= delta;
-        }
-        while (v < (T)vmin) {
-          v += delta;
-        }
-      } else {
-        if (v > (T)vmax) {
-          v = (T)vmax;
-        } else if (v < (T)vmin) {
-          v = (T)vmin;
+    
+    void set(T v) {
+      if (this->flags & CMDFLAG_HASLIMITS) {
+        if (this->flags & CMDFLAG_WRAPAROUND) {
+          T delta = (T)vmax - (T)vmin + 1;
+          while (v > (T)vmax) {
+            v -= delta;
+          }
+          while (v < (T)vmin) {
+            v += delta;
+          }
+        } else {
+          if (v > (T)vmax) {
+            v = (T)vmax;
+          } else if (v < (T)vmin) {
+            v = (T)vmin;
+          }
         }
       }
+      *valuePtr = v;  
     }
-    if (sizeof(T) == 1) {
-      *valuePtr._byte = v;
-    } else if (sizeof(T) == 2) {
-      *valuePtr._int = v;
+  
+    void inc(T delta) {
+      set(delta + *valuePtr);
+    };
+  
+    void printValue() {
+      Serial.print(*valuePtr);
     }
-    return v;
-  };
-  template< typename T > T inc(T delta) {
-    if (sizeof(T) == 1) {
-      return set(delta + *valuePtr._byte);
-    } else if (sizeof(T) == 2) {
-      return set(delta + *valuePtr._int);
+
+    ValueCommand* report() {
+      Serial.print(name);
+      Serial.print(": ");
+      printValue();
+      Serial.println();
+      return this;
+    };
+
+    protected:
+      volatile T* valuePtr;
+      T vmin, vmax;
+};
+
+
+class BoolCommand : public ValueCommand<bool> {
+  public:
+    BoolCommand(const byte _id, const char _chr, const char* _name, volatile bool* _valuePtr)
+    : ValueCommand(_id, _chr, _name, _valuePtr, false, true, CMDFLAG_TOGGLE | CMDFLAG_WRAPAROUND) {
     }
-    return 0;
-  };
+
+    void printValue() {
+      Serial.print(*valuePtr ? "on" : "off");  
+    }
+    
+    BoolCommand *toggle() {
+      *valuePtr = !*valuePtr;
+      return this;
+    };
 };
 
 #endif // Command_h
-

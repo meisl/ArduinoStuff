@@ -167,10 +167,10 @@ void setup() {
   Serial.println("setup done");
 }
 
-volatile uint16_t brightness = 1;
+volatile byte     brightness = 1;
+volatile byte     rotate = 0;
 volatile uint32_t animationDelay = 5; // in milliseconds
 volatile bool     invert = false;
-volatile byte     rotate = 0;
 volatile bool     mirror = false; // mirror at vertical axis (does not depend on rotate)
 volatile bool     flip = false;   // mirror at 0-axis (depends on rotate)
 
@@ -198,33 +198,48 @@ enum { // node type
 
 
 
-cmd_t cmd_invert = cmd_t(
+BoolCommand cmd_invert = {
   CMD_INVERT,       // id  
   'i',              // chr
   "invert",         // name
   &invert           // valuePtr
-);
-cmd_t cmd_flip = {
+};
+BoolCommand cmd_flip = {
   CMD_FLIP,         // id  
   'f',              // chr
   "flip",           // name
   &flip             // valuePtr
 };
-cmd_t cmd_mirror = {
+BoolCommand cmd_mirror = {
   CMD_MIRROR,       // id  
   'm',              // chr
   "mirror",         // name
   &mirror           // valuePtr
 };
-cmd_t cmd_rotate = cmd_t(
+ValueCommand<byte> cmd_rotate = {
   CMD_ROTATE,       // id  
   'r',              // chr
   "rotate",         // name
   &rotate,          // valuePtr
   0, 15,            // min, max
   CMDFLAG_WRAPAROUND  // additional flags
-);
-
+};
+ValueCommand<byte> cmd_brightness = {
+  CMD_BRIGHTNESS,     // id  
+  'b',                // chr
+  "brightness",       // name
+  &brightness,        // valuePtr
+  0, MAX_BRIGHTNESS,  // min, max
+  CMDFLAG_WRAPAROUND  // additional flags
+};
+ValueCommand<byte> cmd_rowCount = {
+  CMD_ROWCOUNT,       // id  
+  'p',                // chr
+  "rowCount",         // name
+  &rowCount,          // valuePtr
+  1, 255,             // min, max
+  CMDFLAG_WRAPAROUND  // additional flags
+};
 void dumpEEPROM() {
     const byte bytes_per_line = 16;
     const char unprintable_replacement = 0x90;
@@ -255,12 +270,12 @@ void dumpEEPROM() {
     }  
 }
 
-cmd_t cmd_eeprom = cmd_t(
+CallbackCommand cmd_eeprom = {
   CMD_EEPROM,       // id  
   'e',              // chr
   "EEPROM dump",    // name
-  &dumpEEPROM
-);
+  dumpEEPROM
+};
 
 struct node_t {
   byte type;
@@ -756,27 +771,26 @@ void doCommands() {
       case CMD_BRIGHTNESS:
         if (a0) {
           if (a0->type == TYPE_INT) {
-            brightness = a0->value.i;
+            cmd_brightness.set(a0->value.i);
+            //brightness = a0->value.i;
           } else {
-            brightness += a0->value.i;
+            cmd_brightness.inc(a0->value.i);
+            //brightness += a0->value.i;
           }
-          brightness = constrain(brightness, 0, MAX_BRIGHTNESS);
+          //brightness = constrain(brightness, 0, MAX_BRIGHTNESS);
           //analogWrite(enablePin, brightness);
         }
-        Serial.print("brightness: ");
-        Serial.println(brightness);
+        cmd_brightness.report();
         break;
       case CMD_ROWCOUNT:
         if (a0) {
           if (a0->type == TYPE_INT) {
-            rowCount = a0->value.i;
+            cmd_rowCount.set(a0->value.i);
           } else {
-            rowCount += a0->value.i;
+            cmd_rowCount.inc(a0->value.i);
           }
-          rowCount = constrain(rowCount, 1, 256);
         }
-        Serial.print("rowCount: ");
-        Serial.println(rowCount);
+        cmd_rowCount.report();
         break;
       case CMD_ANIM:
         if (a0) {
@@ -807,9 +821,9 @@ void doCommands() {
       case CMD_ROTATE:
         if (a0) {
           if (a0->type == TYPE_INT) {
-            cmd_rotate.set(a0->value.i);
+            cmd_rotate.set((byte)a0->value.i);
           } else {
-            cmd_rotate.inc(a0->value.i);
+            cmd_rotate.inc((byte)a0->value.i);
           }
         }
         cmd_rotate.report();
