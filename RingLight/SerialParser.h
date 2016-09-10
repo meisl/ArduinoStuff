@@ -11,6 +11,7 @@
 #define STATE_SKIP_TIL_EOL  4
 #define STATE_ERROR         5
 
+template <typename T> class List;
 
 class ListBase {
   protected:
@@ -18,7 +19,8 @@ class ListBase {
     }
 
   public:
-    ListBase() {
+    virtual bool isEmpty() {
+      return true;  
     }
     
     virtual ListBase* tail() {
@@ -28,7 +30,11 @@ class ListBase {
     virtual uint16_t length() {
       return 0;  
     }
-    
+      
+    template <typename T> List<T> *append(T value) {
+      return new List<T>(value);
+    }
+        
     void print() { // TODO: make more obvious
       Serial.print("(");
       ListBase *a = this, *b = a->tail();
@@ -53,8 +59,13 @@ class ListBase {
     }
 };
 
-ListBase Empty;
-ListBase *NIL = &Empty;
+ListBase *NIL = new ListBase();
+
+
+
+template <typename T> List<T> *cons(T x, List<T> *xs) {
+  return new List<T>(x, xs);  
+}
 
 template <typename T> class List : public ListBase {
 
@@ -67,14 +78,20 @@ template <typename T> class List : public ListBase {
     ListBase *next;
   
   public:
-    List(T *_valuePtr, List<T> *tail = (List<T>*)NIL) : valuePtr(_valuePtr), next(tail) {
+    List(T *_valuePtr, List<T> *tail = NULL) : valuePtr(_valuePtr) {
+      next = (tail == NULL) ? NIL : tail;
     }
 
-    List(T _value, List<T> *tail = (List<T>*)NIL) : next(tail) {
+    List(T _value, List<T> *tail = NULL) {
       valuePtr = (T*)malloc(sizeof(T));
       *valuePtr = _value;
+      next = (tail == NULL) ? NIL : tail;
     }
 
+    bool isEmpty() {
+      return false;
+    }
+    
     uint16_t length() {
       return 1 + next->length();
     }
@@ -87,18 +104,16 @@ template <typename T> class List : public ListBase {
       return (List<T>*)next;
     }    
       
-    List<T> *append(T value) {
-      return new List(value, this);
+    virtual List<T> *append(T value) {
+      List<T> *t = tail();
+      if (t == NIL) {
+        return new List<T>(head(), new List<T>(value)); // cannot dispatch to NIL->append
+      } else {
+        return new List<T>(head(), t->append(value));
+      }
     }
 
 };
-
-
-template <typename T> List<T> *cons(T x, List<T> *xs) {
-  return new List<T>(x, xs);  
-}
-
-ListBase foo = ListBase();
 
 
 #endif // SerialParser_h

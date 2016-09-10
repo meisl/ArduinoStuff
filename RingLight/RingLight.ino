@@ -888,16 +888,18 @@ void loop() {
       NIL->println();
 
       int foo = 42;
-      List<int> xs = { &foo };
-      List<int> ys = { 23, &xs };
+      List<int> xs = *NIL->append(foo);  //{ &foo };
+      List<int> ys = *cons(23, &xs);
       Serial.println(xs.length());
       xs.println();
       
       Serial.println(ys.length());
       ys.println();
-      List<int> *zs = ys.append(4711);
+      
+      List<int> *zs = ys.append(4711);  //  cons(4711, &ys); // 
       Serial.println(zs->length());
       zs->println();
+      
     }
     check_displayEvent();
     doCommands();
