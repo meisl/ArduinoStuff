@@ -1,6 +1,7 @@
 #include "Arduino.h"  // could use <angle brackets> instead of "double quotes"
 #include "Command.h"  // MUST use "double quotes" for this
-#include "SerialParser.h"  // MUST use "double quotes" for this
+#include "List.h"     // MUST use "double quotes" for this
+//#include "Parser.h"   // MUST use "double quotes" for this
 #include "EEPROM.h"   // could use <angle brackets> instead of "double quotes"
 
 // The pins used to communicate with the shift registers (74HC595)
@@ -278,6 +279,8 @@ CallbackCommand cmd_eeprom = {
   dumpEEPROM
 };
 
+//Parser *parser = new Parser([] { return Serial.read(); });
+
 struct node_t {
   byte type;
   union {
@@ -304,6 +307,8 @@ byte parsedCharCount;
 #define STATE_ERROR         5
 
 struct node_t *parseCommand() {
+  //parser->addCmd(&cmd_flip);
+
   static byte state = STATE_LINE_START;
   static nodeList_t children = { { TYPE_INT, 0, 0, NULL }, NULL };
   static node_t ast = { TYPE_CMD, CMD_UNKNOWN, 0, &children };
@@ -893,11 +898,11 @@ void loop() {
       println(NIL);
 
       int foo = 42;
-      List<int> xs = *NIL->append(foo);  //{ &foo };
-      List<int> ys = *cons(23, &xs);
+      List<int> xs = *cons(foo);  //{ &foo };
       Serial.println(xs.length());
       println(&xs);
       
+      List<int> ys = *cons(23, &xs);
       Serial.println(ys.length());
       println(&ys);
       
@@ -907,7 +912,7 @@ void loop() {
 
       zs->freeAll();
 
-      List<bar> *us = new List<bar>(bar {1, 42});
+      //List<bar> *us = new List<bar>(bar {1, 42});
       //println(us);
       
     }

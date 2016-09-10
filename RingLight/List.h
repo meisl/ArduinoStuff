@@ -1,17 +1,16 @@
-#ifndef SerialParser_h
-#define SerialParser_h
+#ifndef List_h
+#define List_h
 
 #include "Arduino.h"  // could use <angle brackets> instead of "double quotes"
 #include "Command.h"  // MUST use "double quotes" for this
 
-#define STATE_LINE_START    0
-#define STATE_LINE_END      1
-#define STATE_OPTIONAL_ARG  2
-#define STATE_NEXT_DIGIT    3
-#define STATE_SKIP_TIL_EOL  4
-#define STATE_ERROR         5
-
 template <typename T> class List;
+
+template <typename T> List<T> *cons(T x, List<T> *xs = NULL) {
+  T *xPtr = (T*)malloc(sizeof(T));
+  *xPtr = x;
+  return new List<T>(xPtr, xs);  
+}
 
 class ListBase {
   public:
@@ -32,16 +31,11 @@ class ListBase {
     }
       
     template <typename T> List<T> *append(T value) {
-      return new List<T>(value);
+      return cons(value);
     }
 };
 
-ListBase *NIL = new ListBase();
-
-
-template <typename T> List<T> *cons(T x, List<T> *xs) {
-  return new List<T>(x, xs);  
-}
+static const ListBase *NIL = new ListBase();
 
 void print(ListBase *a) {
   Serial.print("()");
@@ -79,16 +73,18 @@ template <typename T> class List : public ListBase {
     ListBase *next;
   
   public:
+
     List(T *_valuePtr, List<T> *tail = NULL) : valuePtr(_valuePtr) {
       next = (tail == NULL) ? NIL : tail;
     }
 
+/*
     List(T _value, List<T> *tail = NULL) {
       valuePtr = (T*)malloc(sizeof(T));
       *valuePtr = _value;
       next = (tail == NULL) ? NIL : tail;
     }
-
+*/
     virtual void freeAll() {
       tail()->freeAll();
       free(this);
@@ -113,13 +109,13 @@ template <typename T> class List : public ListBase {
     virtual List<T> *append(T value) {
       List<T> *t = tail();
       if (t == NIL) {
-        return new List<T>(head(), new List<T>(value)); // cannot dispatch to NIL->append
+        return new List<T>(valuePtr, cons(value)); // cannot dispatch to NIL->append
       } else {
-        return new List<T>(head(), t->append(value));
+        return new List<T>(valuePtr, t->append(value));
       }
     }
 
 };
 
 
-#endif // SerialParser_h
+#endif // List_h
