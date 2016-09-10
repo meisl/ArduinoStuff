@@ -58,9 +58,10 @@ template <typename T> class ValueCommand : public CommandBase {
       T limitA,
       T limitB,
       const byte _flags
-    ) : CommandBase(_id, _chr, _name, _flags | CMDFLAG_HASLIMITS), valuePtr(_valuePtr) {
-      vmin = min(limitA, limitB);
-      vmax = max(limitA, limitB);
+    ) : CommandBase(_id, _chr, _name, _flags | CMDFLAG_HASLIMITS), valuePtr(_valuePtr), 
+        vmin(min(limitA, limitB)), vmax(max(limitA, limitB))
+    {
+      set(*valuePtr); // constrain initial value
     }
     
     void set(T v) {
@@ -85,6 +86,7 @@ template <typename T> class ValueCommand : public CommandBase {
     }
   
     void inc(T delta) {
+      // FIXME: eg T == byte and limits are 0 and/or 255 - wraparound won't work at one end, saturation won't at the other
       set(delta + *valuePtr);
     };
   
