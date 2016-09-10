@@ -1,5 +1,6 @@
 #include "Arduino.h"  // could use <angle brackets> instead of "double quotes"
 #include "Command.h"  // MUST use "double quotes" for this
+#include "SerialParser.h"  // MUST use "double quotes" for this
 #include "EEPROM.h"   // could use <angle brackets> instead of "double quotes"
 
 // The pins used to communicate with the shift registers (74HC595)
@@ -882,6 +883,21 @@ void loop() {
       f = f / DISPLAY_ROWS;
       Serial.print("f_refr:   "); Serial.print(f); Serial.print(" Hz ("); Serial.print(DISPLAY_ROWS); Serial.println(" rows)");
       serialConn = true;
+
+      Serial.println(NIL->length());
+      NIL->println();
+
+      int foo = 42;
+      List<int> xs = { &foo };
+      List<int> ys = { 23, &xs };
+      Serial.println(xs.length());
+      xs.println();
+      
+      Serial.println(ys.length());
+      ys.println();
+      List<int> *zs = ys.append(4711);
+      Serial.println(zs->length());
+      zs->println();
     }
     check_displayEvent();
     doCommands();
