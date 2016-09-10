@@ -14,11 +14,11 @@
 template <typename T> class List;
 
 class ListBase {
-  protected:
-    virtual void _print() {
-    }
-
   public:
+    virtual void freeAll() {
+      // do nothing
+    }
+  
     virtual bool isEmpty() {
       return true;  
     }
@@ -34,46 +34,47 @@ class ListBase {
     template <typename T> List<T> *append(T value) {
       return new List<T>(value);
     }
-        
-    void print() { // TODO: make more obvious
-      Serial.print("(");
-      ListBase *a = this, *b = a->tail();
-      if (a != b) {
-        while (1) {
-          a->_print();
-          a = b;
-          b = b->tail();
-          if (a == b) {
-            break;
-          } else {
-            Serial.print(", ");
-          }
-        }
-      }
-      Serial.print(")");
-    }
-    
-    void println() {
-      print();
-      Serial.println();
-    }
 };
 
 ListBase *NIL = new ListBase();
-
 
 
 template <typename T> List<T> *cons(T x, List<T> *xs) {
   return new List<T>(x, xs);  
 }
 
-template <typename T> class List : public ListBase {
+void print(ListBase *a) {
+  Serial.print("()");
+}
 
-  protected:
-    void _print() {
-      Serial.print(this->head());
+void println(ListBase *xs) {
+  print(xs);
+  Serial.println();
+}
+
+template <typename T> void print(List<T> *a) {
+  Serial.print("(");
+  if (a != NIL) {
+    while (1) {
+      Serial.print(a->head());
+      List<T> *b = a->tail();
+      if (b == NIL) {
+        break;
+      }
+      Serial.print(", ");
+      a = b;
     }
-    
+  }
+  Serial.print(")");  
+}
+
+template <typename T> void println(List<T> *xs) {
+  print(xs);
+  Serial.println();
+}
+
+template <typename T> class List : public ListBase {
+  protected:
     T *valuePtr;
     ListBase *next;
   
@@ -86,6 +87,11 @@ template <typename T> class List : public ListBase {
       valuePtr = (T*)malloc(sizeof(T));
       *valuePtr = _value;
       next = (tail == NULL) ? NIL : tail;
+    }
+
+    virtual void freeAll() {
+      tail()->freeAll();
+      free(this);
     }
 
     bool isEmpty() {

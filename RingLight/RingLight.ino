@@ -870,6 +870,11 @@ void doCommands() {
 
 bool serialConn = false;
 
+struct bar {
+  byte a;
+  int  b;
+};
+
 void loop() {
   if (Serial) {
     if (!serialConn) { // greet if reconnected
@@ -885,20 +890,25 @@ void loop() {
       serialConn = true;
 
       Serial.println(NIL->length());
-      NIL->println();
+      println(NIL);
 
       int foo = 42;
       List<int> xs = *NIL->append(foo);  //{ &foo };
       List<int> ys = *cons(23, &xs);
       Serial.println(xs.length());
-      xs.println();
+      println(&xs);
       
       Serial.println(ys.length());
-      ys.println();
+      println(&ys);
       
       List<int> *zs = ys.append(4711);  //  cons(4711, &ys); // 
       Serial.println(zs->length());
-      zs->println();
+      println(zs);
+
+      zs->freeAll();
+
+      List<bar> *us = new List<bar>(bar {1, 42});
+      //println(us);
       
     }
     check_displayEvent();
